@@ -49,11 +49,10 @@ async function handleGhlOutbound(payload) {
 async function handleSmsInbound(gatewayPayload) {
     try {
         // Adjust these fields based on the exact Android app webhook schema
-        // Taking a generic approach that works with most gateway apps
         const eventData = gatewayPayload.payload || gatewayPayload;
         const fromNumber = eventData.phone || eventData.sender;
         const body = eventData.message || eventData.text;
-        const receiverNumber = eventData.receiver || eventData.simNumberStr; // Often apps pass which SIM received it
+        const receiverNumber = eventData.recipient || eventData.receiver || eventData.simNumberStr;
 
         if (!fromNumber || !body) {
             throw new Error('Missing sender phone or message body in Gateway payload');
