@@ -5,18 +5,28 @@ const axios = require('axios');
  */
 async function sendSmsViaGateway(tenant, toNumber, body) {
     try {
-        // capcom6/android-sms-gateway push API v3 format
-        const payload = {
-            messages: [
-                {
-                    phone: toNumber,
-                    message: body
-                }
-            ]
-        };
+        let endpointUrl = '';
+        let payload = {};
+
+        // If using the official Cloud Server (sms-gate.app), use the 3rd-party API format
+        if (tenant.gateway_base_url.includes('sms-gate.app')) {
+            endpointUrl = `${tenant.gateway_base_url}/3rdparty/v1/message`;
+            payload = {
+                message: body,
+                phoneNumbers: [toNumber]
+            };
+        } else {
+            // CapCom6 generic/local network push API v3 format
+            endpointUrl = `${tenant.gateway_base_url}/api/v3/messages`;
+            payload = {
+                messages: [
+                    { phone: toNumber, message: body }
+                ]
+            };
+        }
 
         const response = await axios.post(
-            `${tenant.gateway_base_url}/api/v3/messages`,
+            endpointUrl,
             payload,
             {
                 headers: {
