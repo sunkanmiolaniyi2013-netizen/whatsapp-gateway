@@ -1,6 +1,5 @@
 const axios = require('axios');
 const config = require('../config');
-const qs = require('qs');
 const supabase = require('../db/supabase');
 
 /**
@@ -17,12 +16,12 @@ async function getValidAccessToken(tenant) {
     // If the token expires in the next 15 minutes, or is already expired, refresh it!
     if (expiresAt.getTime() - now.getTime() < 15 * 60 * 1000) {
         console.log(`Token expired/expiring for ${tenant.ghl_location_id}, refreshing now...`);
-        const data = qs.stringify({
+        const data = new URLSearchParams({
             client_id: config.GHL_CLIENT_ID,
             client_secret: config.GHL_CLIENT_SECRET,
             grant_type: 'refresh_token',
             refresh_token: tenant.ghl_refresh_token
-        });
+        }).toString();
 
         const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', data, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }

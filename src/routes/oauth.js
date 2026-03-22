@@ -1,6 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const qs = require('qs');
 const config = require('../config');
 const db = require('../db/queries');
 
@@ -13,14 +12,14 @@ router.get('/callback', async (req, res) => {
     }
 
     try {
-        const data = qs.stringify({
+        const data = new URLSearchParams({
             client_id: config.GHL_CLIENT_ID,
             client_secret: config.GHL_CLIENT_SECRET,
             grant_type: 'authorization_code',
             code: code,
             user_type: 'Location',
             redirect_uri: `https://${req.headers.host}/oauth/callback`
-        });
+        }).toString();
 
         const tokenRes = await axios.post('https://services.leadconnectorhq.com/oauth/token', data, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
