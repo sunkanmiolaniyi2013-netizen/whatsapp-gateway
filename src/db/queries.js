@@ -64,9 +64,29 @@ async function logEvent(event, tenant_id = null, payload = null, errorStr = null
     }]);
 }
 
+async function updateTenantOAuthTokens(locationId, accessToken, refreshToken, expiresIn) {
+    const expiresAt = new Date(Date.now() + (expiresIn * 1000));
+    const { data, error } = await supabase
+        .from('tenants')
+        .update({
+            // We'll store standard tokens here.
+            ghl_access_token: accessToken,
+            ghl_refresh_token: refreshToken,
+            ghl_token_expires_at: expiresAt
+        })
+        .eq('ghl_location_id', locationId)
+        .select()
+        .single();
+    if (error) console.error("Error saving OAuth tokens:", error);
+    return data;
+}
+
 module.exports = {
     getTenantByLocationId,
     getTenantByPhonePattern,
+    getAllTenants,
+    addTenant,
     logMessage,
-    logEvent
+    logEvent,
+    updateTenantOAuthTokens
 };

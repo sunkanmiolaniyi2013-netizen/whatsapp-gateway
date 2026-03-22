@@ -13,10 +13,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Routes
-const webhookRoutes = require('./routes/webhooks');
+const webhooksRoutes = require('./routes/webhooks');
 const adminRoutes = require('./routes/admin');
-app.use('/webhooks', webhookRoutes);
+const oauthRoutes = require('./routes/oauth');
+const providerRoutes = require('./routes/provider');
+
+// Register routes
+app.use('/webhooks', webhooksRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/oauth', oauthRoutes);
+app.use('/provider', providerRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
