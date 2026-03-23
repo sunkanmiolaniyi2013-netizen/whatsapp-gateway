@@ -202,28 +202,42 @@
         }
 
         async function addTenant() {
+            const saveBtn = document.querySelector('#addTenantModal .btn-primary');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
             const payload = {
                 business_name: document.getElementById('business_name').value,
                 phone_number: document.getElementById('phone_number').value,
                 ghl_location_id: document.getElementById('ghl_location_id').value,
-                ghl_api_key: document.getElementById('ghl_api_key').value,
+                ghl_api_key: document.getElementById('ghl_api_key').value || 'N/A',
                 gateway_base_url: document.getElementById('gateway_base_url').value,
                 gateway_api_key: document.getElementById('gateway_api_key').value,
                 gateway_device_id: document.getElementById('gateway_device_id').value
             };
 
-            await authFetch(`${API_BASE}/tenants`, {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
+            try {
+                const result = await authFetch(`${API_BASE}/tenants`, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
 
-            // Close modal (Bootstrap 5 way)
-            const modalElement = document.getElementById('addTenantModal');
-            const modal = bootstrap.Modal.getInstance(modalElement);
-            modal.hide();
-            document.getElementById('addTenantForm').reset();
-            
-            loadTenants();
+                if (result && result.error) {
+                    alert('Error saving: ' + result.error);
+                } else {
+                    // Success! Close modal and refresh list
+                    const modalElement = document.getElementById('addTenantModal');
+                    const modal = bootstrap.Modal.getInstance(modalElement);
+                    modal.hide();
+                    document.getElementById('addTenantForm').reset();
+                    loadTenants();
+                }
+            } catch (err) {
+                alert('Failed to save business: ' + err.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Business';
+            }
         }
 
         async function toggleTenant(id, newState) {
