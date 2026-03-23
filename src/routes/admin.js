@@ -17,8 +17,8 @@ router.get('/tenants', async (req, res) => {
 router.post('/tenants', async (req, res) => {
     const { business_name, ghl_location_id, ghl_api_key, phone_number, gateway_device_id, gateway_api_key, gateway_base_url } = req.body;
     
-    // Basic validation
-    if (!business_name || !ghl_location_id || !ghl_api_key || !phone_number || !gateway_base_url) {
+    // Basic validation (ghl_api_key is now optional - OAuth handles authentication)
+    if (!business_name || !ghl_location_id || !phone_number || !gateway_base_url) {
         return res.status(400).json({ error: 'Missing required tenant fields' });
     }
 

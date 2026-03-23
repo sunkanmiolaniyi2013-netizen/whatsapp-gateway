@@ -32,8 +32,7 @@ router.post('/send-message', async (req, res) => {
         const ghlService = require('../services/ghl');
         try {
             const token = await ghlService.getValidAccessToken(tenant);
-            await axios.post('https://services.leadconnectorhq.com/conversations/messages/delivery-status', {
-                messageId: messageId,
+            await axios.put(`https://services.leadconnectorhq.com/conversations/messages/${messageId}/status`, {
                 status: "delivered"
             }, {
                 headers: {

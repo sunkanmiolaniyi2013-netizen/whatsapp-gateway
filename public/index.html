@@ -99,12 +99,12 @@
                         <input type="text" id="ghl_location_id" class="form-control" required placeholder="GHL Location ID">
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label class="form-label small text-muted">GHL Private Integration Key</label>
-                        <input type="text" id="ghl_api_key" class="form-control" required placeholder="Bearer token...">
+                        <label class="form-label small text-muted">GHL Private Integration Key <span class="text-success">(Optional - OAuth handles this)</span></label>
+                        <input type="text" id="ghl_api_key" class="form-control" placeholder="Leave blank - OAuth handles auth">
                     </div>
                     <div class="col-md-12 mb-3">
                         <label class="form-label small text-muted">Android Gateway Cloud URL</label>
-                        <input type="text" id="gateway_base_url" class="form-control" required placeholder="e.g. https://cloud.smsgateway.local">
+                        <input type="text" id="gateway_base_url" class="form-control" required placeholder="https://api.sms-gate.app" value="https://api.sms-gate.app">
                     </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label small text-muted">Gateway API Key (Optional)</label>

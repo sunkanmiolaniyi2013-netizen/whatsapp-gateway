@@ -3,7 +3,7 @@ const supabase = require('./src/db/supabase');
 
 async function checkLogs() {
     const { data: logs, error } = await supabase
-        .from('logs')
+        .from('messages')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(5);
