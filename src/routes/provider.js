@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/queries');
 const smsGateway = require('../services/smsGateway');
+const smarterRouter = require('../services/router');
 
 /**
  * Endpoint for GoHighLevel Conversation Provider: Send Message
@@ -23,11 +24,13 @@ router.post('/send-message', async (req, res) => {
             return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
-        const tenant = await db.getTenantByLocationId(locationId);
+        // Phase 3: Smart Routing (Country Code + Sticky Lock)
+        const tenant = await smarterRouter.determineGatewayNumber(locationId, toNumber);
+        
         if (!tenant) {
             console.error(`[Provider] Tenant NOT FOUND for locationId: ${locationId}`);
             await db.logEvent('provider_tenant_not_found', null, { locationId });
-            return res.status(404).json({ success: false, message: "Tenant not found for location: " + locationId });
+            return res.status(404).json({ success: false, message: "No active gateway phone found for location: " + locationId });
         }
 
         console.log(`[Provider] Found tenant: ${tenant.business_name}, has_refresh_token: ${!!tenant.ghl_refresh_token}`);
