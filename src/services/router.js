@@ -141,7 +141,7 @@ async function handleSmsInbound(payload) {
 
     // Push into GHL using this specific tenant's OAuth credentials!
     const ghlService = require('./ghl');
-    await ghlService.pushInboundMessageToGHL(tenant, body, sender);
+    await ghlService.pushInboundMessageToGHL(tenant, sender, body);
 
     return { success: true };
 }
