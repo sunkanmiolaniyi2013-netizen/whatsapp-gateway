@@ -110,9 +110,16 @@
                         <label class="form-label small text-muted">Gateway API Key (Optional)</label>
                         <input type="text" id="gateway_api_key" class="form-control" placeholder="Optional">
                     </div>
-                    <div class="col-md-6 mb-3">
+                    <div class="col-md-5 mb-3">
                         <label class="form-label small text-muted">Gateway Device ID (Optional)</label>
                         <input type="text" id="gateway_device_id" class="form-control" placeholder="Optional">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label small text-muted">SIM Tray Slot</label>
+                        <select id="sim_number" class="form-control">
+                            <option value="1">SIM 1</option>
+                            <option value="2">SIM 2</option>
+                        </select>
                     </div>
                 </div>
             </form>
@@ -185,7 +192,7 @@
                     tbody.innerHTML += `
                         <tr>
                             <td class="fw-bold">${t.business_name}</td>
-                            <td>${t.phone_number}</td>
+                            <td>${t.phone_number} <span class="badge bg-secondary ms-1" style="font-size: 0.65em;">SIM ${t.sim_number || 1}</span></td>
                             <td class="small text-muted">${t.ghl_location_id}</td>
                             <td class="small text-muted">${t.gateway_base_url}</td>
                             <td>${statusBadge}</td>
@@ -213,7 +220,8 @@
                 ghl_api_key: document.getElementById('ghl_api_key').value || 'N/A',
                 gateway_base_url: document.getElementById('gateway_base_url').value,
                 gateway_api_key: document.getElementById('gateway_api_key').value,
-                gateway_device_id: document.getElementById('gateway_device_id').value
+                gateway_device_id: document.getElementById('gateway_device_id').value,
+                sim_number: parseInt(document.getElementById('sim_number').value) || 1
             };
 
             try {

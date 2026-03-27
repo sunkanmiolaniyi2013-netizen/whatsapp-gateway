@@ -38,19 +38,14 @@ async function determineGatewayNumber(locationId, contactPhone) {
         return chosen;
     }
 
-    // 3. Country Code Matching!
-    // Extract the country code from contactPhone (e.g. +1, +33, +44)
-    // Basic extraction: match the plus and initial digits before standard length, 
-    // or just check if gateway numbers start with the same first 2-3 characters
+    // 3. Country Code Pool Building!
     console.log(`[Router] Multiple phones detected. Attempting Country Code match...`);
-    let chosenTenant = null;
-
-    // We will look at prefix length progressively to find best match (e.g., +33 > +3)
+    
     let longestPrefixMatch = 0;
+    let fallbackCandidates = [];
 
     for (const tenant of activeTenants) {
         const gwPhone = tenant.phone_number;
-        // Determine how many starting characters match perfectly
         let matchLen = 0;
         for (let i = 0; i < Math.min(contactPhone.length, gwPhone.length); i++) {
             if (contactPhone[i] === gwPhone[i]) matchLen++;
@@ -58,19 +53,38 @@ async function determineGatewayNumber(locationId, contactPhone) {
         }
         
         // If it matches at least the '+' and the first country digit (e.g. '+1' or '+3')
-        if (matchLen >= 2 && matchLen > longestPrefixMatch) {
-            longestPrefixMatch = matchLen;
-            chosenTenant = tenant;
+        if (matchLen >= 2) {
+            if (matchLen > longestPrefixMatch) {
+                // New best country code match! Reset the pool.
+                longestPrefixMatch = matchLen;
+                fallbackCandidates = [tenant];
+            } else if (matchLen === longestPrefixMatch) {
+                // Another phone shares the exact same country code length! Add to pool.
+                fallbackCandidates.push(tenant);
+            }
         }
     }
 
-    // 4. Fallback: Round Robin / Random selection if no country perfectly matches
-    // In future versions, we could check a `last_used` timestamp to evenly distribute load
-    if (!chosenTenant) {
-        console.log(`[Router] No local country match found. Electing Random Fallback.`);
-        chosenTenant = activeTenants[Math.floor(Math.random() * activeTenants.length)];
+    // Determine the final group of candidates to Load Balance
+    let candidatesToLoadBalance = fallbackCandidates.length > 0 ? fallbackCandidates : activeTenants;
+
+    let chosenTenant = null;
+
+    // 4. Phase 4 Intelligent Load Balancing
+    if (candidatesToLoadBalance.length === 1) {
+        chosenTenant = candidatesToLoadBalance[0];
+        console.log(`[Router] Only 1 valid phone candidate for that region. Selected ${chosenTenant.phone_number}`);
     } else {
-        console.log(`[Router] Country Code MATCH! Selected ${chosenTenant.phone_number}`);
+        console.log(`[Router] Load Balancing between ${candidatesToLoadBalance.length} identical phones. Fetching 1-Hour Volumetrics...`);
+        const candidateIds = candidatesToLoadBalance.map(t => t.id);
+        const volumeCounts = await db.getTenantVolumes(candidateIds);
+        
+        chosenTenant = candidatesToLoadBalance.reduce((best, current) => {
+            if (volumeCounts[current.id] < volumeCounts[best.id]) return current;
+            return best;
+        }, candidatesToLoadBalance[0]);
+        
+        console.log(`[Router] Selected ${chosenTenant.phone_number} (Only sent ${volumeCounts[chosenTenant.id]} texts in the last hour)`);
     }
 
     // 5. Save the route permanently so they lock together!

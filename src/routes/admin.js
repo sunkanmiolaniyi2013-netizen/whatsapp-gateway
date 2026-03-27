@@ -15,7 +15,7 @@ router.get('/tenants', async (req, res) => {
 
 // 2. Add a new tenant (Business)
 router.post('/tenants', async (req, res) => {
-    const { business_name, ghl_location_id, ghl_api_key, phone_number, gateway_device_id, gateway_api_key, gateway_base_url } = req.body;
+    const { business_name, ghl_location_id, ghl_api_key, phone_number, gateway_device_id, gateway_api_key, gateway_base_url, sim_number } = req.body;
     
     // Basic validation (ghl_api_key is now optional - OAuth handles authentication)
     if (!business_name || !ghl_location_id || !phone_number || !gateway_base_url) {
@@ -30,6 +30,7 @@ router.post('/tenants', async (req, res) => {
         gateway_device_id: gateway_device_id || 'default',
         gateway_api_key: gateway_api_key || '',
         gateway_base_url,
+        sim_number: sim_number ? parseInt(sim_number) : 1,
         is_active: true
     }]).select().single();
 

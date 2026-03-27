@@ -63,6 +63,35 @@ async function getAllTenants() {
     return data || [];
 }
 
+/**
+ * Phase 4 Load Balancing:
+ * Counts the outbound messages sent by each provided tenant in the last 1 hour.
+ */
+async function getTenantVolumes(tenantIds) {
+    if (!tenantIds || tenantIds.length === 0) return {};
+
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+        .from('messages')
+        .select('tenant_id')
+        .eq('direction', 'outbound')
+        .in('tenant_id', tenantIds)
+        .gte('created_at', oneHourAgo);
+
+    const counts = {};
+    tenantIds.forEach(id => counts[id] = 0);
+    
+    if (error) {
+        console.error("Error fetching tenant volumes:", error);
+        return counts;
+    }
+
+    if (data) {
+        data.forEach(row => counts[row.tenant_id]++);
+    }
+    return counts;
+}
+
 async function addTenant(payload) {
     const { data, error } = await supabase.from('tenants').insert([payload]).select();
     if (error) throw error;
@@ -165,6 +194,7 @@ module.exports = {
     getTenantByStickyInbound,
     getStickyRoute,
     saveStickyRoute,
+    getTenantVolumes,
     getAllTenants,
     addTenant,
     logMessage,
