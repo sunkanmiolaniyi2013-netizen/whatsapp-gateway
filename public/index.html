@@ -54,22 +54,8 @@
                 </div>
             </div>
 
-            <div class="card p-0 table-rounded mt-3">
-                <table class="table table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Business Name</th>
-                            <th>Phone Number</th>
-                            <th>GHL Location ID</th>
-                            <th>Gateway URL</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tenant-list">
-                        <!-- Dynamic content -->
-                    </tbody>
-                </table>
+            <div class="accordion mt-3" id="tenantAccordion">
+                <!-- Dynamic folder content -->
             </div>
         </div>
 
@@ -178,31 +164,88 @@
         async function loadTenants() {
             try {
                 const tenants = await authFetch(`${API_BASE}/tenants`);
-                const tbody = document.getElementById('tenant-list');
-                tbody.innerHTML = '';
+                const accordion = document.getElementById('tenantAccordion');
+                accordion.innerHTML = '';
                 
+                // Group by location_id
+                const groups = {};
                 tenants.forEach(t => {
-                    const statusBadge = t.is_active 
-                        ? `<span class="badge bg-success">Active</span>` 
-                        : `<span class="badge bg-secondary">Inactive</span>`;
-                    
-                    const toggleAction = t.is_active ? 'Disable' : 'Enable';
-                    const toggleState = !t.is_active;
-
-                    tbody.innerHTML += `
-                        <tr>
-                            <td class="fw-bold">${t.business_name}</td>
-                            <td>${t.phone_number} <span class="badge bg-secondary ms-1" style="font-size: 0.65em;">SIM ${t.sim_number || 1}</span></td>
-                            <td class="small text-muted">${t.ghl_location_id}</td>
-                            <td class="small text-muted">${t.gateway_base_url}</td>
-                            <td>${statusBadge}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-dark me-1" onclick="toggleTenant('${t.id}', ${toggleState})">${toggleAction}</button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteTenant('${t.id}')">Delete</button>
-                            </td>
-                        </tr>
-                    `;
+                    const id = t.ghl_location_id;
+                    if (!groups[id]) {
+                        groups[id] = {
+                            business_name: t.business_name,
+                            location_id: id,
+                            phones: []
+                        };
+                    }
+                    groups[id].phones.push(t);
                 });
+
+                let i = 0;
+                for (const locId in groups) {
+                    const group = groups[locId];
+                    let phoneRows = '';
+
+                    group.phones.forEach(t => {
+                        const statusBadge = t.is_active 
+                            ? `<span class="badge bg-success shadow-sm">Active</span>` 
+                            : `<span class="badge bg-secondary shadow-sm">Inactive</span>`;
+                        const toggleAction = t.is_active ? 'Disable' : 'Enable';
+                        const toggleState = !t.is_active;
+
+                        phoneRows += `
+                            <tr>
+                                <td class="align-middle fw-medium">${t.phone_number} <span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">SIM ${t.sim_number || 1}</span></td>
+                                <td class="align-middle small text-muted font-monospace">${t.gateway_base_url}</td>
+                                <td class="align-middle">${statusBadge}</td>
+                                <td class="align-middle text-end">
+                                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="toggleTenant('${t.id}', ${toggleState}, event)">${toggleAction}</button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteTenant('${t.id}', event)">Delete</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    accordion.innerHTML += `
+                        <div class="accordion-item border-0 mb-3 shadow-sm rounded-3 overflow-hidden">
+                          <h2 class="accordion-header" id="heading-${i}">
+                            <button class="accordion-button collapsed bg-white py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${i}">
+                               <div class="d-flex w-100 justify-content-between align-items-center me-3">
+                                   <div>
+                                       <span class="fs-5 me-2">🏢</span> 
+                                       <span class="fw-bold fs-5 text-dark">${group.business_name}</span>
+                                       <span class="badge bg-primary bg-opacity-10 text-primary ms-3 rounded-pill">${group.phones.length} Phone(s)</span>
+                                   </div>
+                                   <small class="text-muted fw-normal font-monospace">Loc ID: ${group.location_id}</small>
+                               </div>
+                            </button>
+                          </h2>
+                          <div id="collapse-${i}" class="accordion-collapse collapse" data-bs-parent="#tenantAccordion">
+                            <div class="accordion-body bg-light p-0">
+                               <table class="table table-hover mb-0 align-middle">
+                                    <thead class="table-light text-muted small">
+                                        <tr>
+                                            <th class="ps-4">Phone Number</th>
+                                            <th>Gateway API URL</th>
+                                            <th>Status</th>
+                                            <th class="text-end pe-4">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="border-top-0 ps-3">
+                                        ${phoneRows}
+                                    </tbody>
+                               </table>
+                            </div>
+                          </div>
+                        </div>
+                    `;
+                    i++;
+                }
+
+                if (Object.keys(groups).length === 0) {
+                    accordion.innerHTML = `<div class="text-center p-5 text-muted">No businesses registered yet. Click "Add New Business" to start.</div>`;
+                }
+
             } catch (error) {
                 console.error(error);
             }
@@ -248,7 +291,8 @@
             }
         }
 
-        async function toggleTenant(id, newState) {
+        async function toggleTenant(id, newState, e) {
+            e.stopPropagation();
             await authFetch(`${API_BASE}/tenants/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify({ is_active: newState })
@@ -256,7 +300,8 @@
             loadTenants();
         }
 
-        async function deleteTenant(id) {
+        async function deleteTenant(id, e) {
+            e.stopPropagation();
             if(confirm('Are you sure you want to delete this business route?')) {
                 await authFetch(`${API_BASE}/tenants/${id}`, { method: 'DELETE' });
                 loadTenants();
