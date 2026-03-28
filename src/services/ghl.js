@@ -4,10 +4,34 @@ const supabase = require('../db/supabase');
 
 /**
  * Ensures the tenant has a valid Access Token. If expired, automatically refreshes it.
+ * Phase 5 Upgrade: Automatically searches for sibling tokens if the current row is blank!
  */
 async function getValidAccessToken(tenant) {
     if (!tenant.ghl_refresh_token) {
-        throw new Error(`Location ${tenant.ghl_location_id} has not completed OAuth authorization! No refresh token found.`);
+        console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching sibling phones for Location ID ${tenant.ghl_location_id}...`);
+        const { data: sibling } = await supabase
+            .from('tenants')
+            .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+            .eq('ghl_location_id', tenant.ghl_location_id)
+            .not('ghl_refresh_token', 'is', null)
+            .limit(1)
+            .single();
+            
+        if (sibling && sibling.ghl_refresh_token) {
+            console.log(`[OAuth] Sibling tokens found! Inheriting...`);
+            tenant.ghl_access_token = sibling.ghl_access_token;
+            tenant.ghl_refresh_token = sibling.ghl_refresh_token;
+            tenant.ghl_token_expires_at = sibling.ghl_token_expires_at;
+            
+            // Save them to this row permanently
+            await supabase.from('tenants').update({
+                ghl_access_token: sibling.ghl_access_token,
+                ghl_refresh_token: sibling.ghl_refresh_token,
+                ghl_token_expires_at: sibling.ghl_token_expires_at
+            }).eq('id', tenant.id);
+        } else {
+            throw new Error(`Location ${tenant.ghl_location_id} has not completed OAuth authorization! No sibling tokens found either.`);
+        }
     }
 
     const now = new Date();

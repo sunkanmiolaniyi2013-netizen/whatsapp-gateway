@@ -27,7 +27,8 @@ router.post('/sms-inbound', async (req, res) => {
         res.status(200).json(result);
     } catch (error) {
         console.error('Gateway Inbound Webhook Error:', error.message);
-        res.status(400).json({ success: false, error: error.message });
+        // CRITICAL FIX: Always return 200 to Android app so it doesn't hopelessly retry eternally!
+        res.status(200).json({ success: false, error: error.message });
     }
 });
 
