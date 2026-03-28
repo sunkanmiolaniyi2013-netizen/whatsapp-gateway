@@ -103,6 +103,7 @@
                     <div class="col-md-3 mb-3">
                         <label class="form-label small text-muted">SIM Tray Slot</label>
                         <select id="sim_number" class="form-control">
+                            <option value="">Default (Auto)</option>
                             <option value="1">SIM 1</option>
                             <option value="2">SIM 2</option>
                         </select>
@@ -193,9 +194,10 @@
                         const toggleAction = t.is_active ? 'Disable' : 'Enable';
                         const toggleState = !t.is_active;
 
+                        const simBadge = t.sim_number ? `<span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">SIM ${t.sim_number}</span>` : `<span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">Auto SIM</span>`;
                         phoneRows += `
                             <tr>
-                                <td class="align-middle fw-medium">${t.phone_number} <span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">SIM ${t.sim_number || 1}</span></td>
+                                <td class="align-middle fw-medium">${t.phone_number} ${simBadge}</td>
                                 <td class="align-middle small text-muted font-monospace">${t.gateway_base_url}</td>
                                 <td class="align-middle">${statusBadge}</td>
                                 <td class="align-middle text-end">
@@ -264,7 +266,7 @@
                 gateway_base_url: document.getElementById('gateway_base_url').value,
                 gateway_api_key: document.getElementById('gateway_api_key').value,
                 gateway_device_id: document.getElementById('gateway_device_id').value,
-                sim_number: parseInt(document.getElementById('sim_number').value) || 1
+                sim_number: document.getElementById('sim_number').value ? parseInt(document.getElementById('sim_number').value) : null
             };
 
             try {

@@ -13,9 +13,9 @@ async function sendSmsViaGateway(tenant, toNumber, body) {
             endpointUrl = `${tenant.gateway_base_url}/3rdparty/v1/message`;
             payload = {
                 message: body,
-                phoneNumbers: [toNumber],
-                simNumber: tenant.sim_number || 1
+                phoneNumbers: [toNumber]
             };
+            if (tenant.sim_number) payload.simNumber = tenant.sim_number;
         } else {
             // CapCom6 generic/local network push API v3 format
             endpointUrl = `${tenant.gateway_base_url}/api/v3/messages`;

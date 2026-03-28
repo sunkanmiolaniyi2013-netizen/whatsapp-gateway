@@ -30,7 +30,7 @@ router.post('/tenants', async (req, res) => {
         gateway_device_id: gateway_device_id || 'default',
         gateway_api_key: gateway_api_key || '',
         gateway_base_url,
-        sim_number: sim_number ? parseInt(sim_number) : 1,
+        sim_number: sim_number ? parseInt(sim_number) : null,
         is_active: true
     }]).select().single();
 
