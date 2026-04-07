@@ -1,5 +1,8 @@
 const db = require('../db/queries');
 
+// In-Memory cache to prevent the Android app from duplicating messages (stores message IDs for 10 minutes)
+const processedMessageIds = new Set();
+
 /**
  * Determines the absolute best physical Android phone to send a text from.
  * Applies Sticky Routing and Country Code Matching automatically.
@@ -132,8 +135,20 @@ async function handleSmsInbound(payload) {
     const sender = payload.payload?.sender || payload.sender;
     const recipient = payload.payload?.recipient || payload.recipient;
     const body = payload.payload?.message || payload.message;
+    const messageId = payload.payload?.messageId || payload.messageId;
 
     if (!sender || !recipient || !body) throw new Error("Invalid SMS payload from gateway");
+
+    // Phase 6 Deduplication: The Android App sometimes fires multiple webhooks for a single text.
+    if (messageId) {
+        if (processedMessageIds.has(messageId)) {
+            console.log(`[Router] DEDUPLICATION: Message ${messageId} already processed! Ignoring duplicate.`);
+            return { success: true, note: 'Duplicate ignored' };
+        }
+        // Mark as processed and automatically purge from memory after 10 minutes
+        processedMessageIds.add(messageId);
+        setTimeout(() => processedMessageIds.delete(messageId), 10 * 60 * 1000);
+    }
 
     // Phase 3 Multi-Tenant Inbound Routing!
     // Instead of querying just by recipient (which collides if 1 phone serves 2 sub-accounts),
