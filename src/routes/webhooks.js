@@ -30,8 +30,9 @@ router.post('/sms-inbound', (req, res) => {
             await db.logEvent('webhook_gateway_received', null, payload);
             await gatewayRouter.handleSmsInbound(payload);
         } catch (error) {
-            console.error('Gateway Inbound Webhook Background Error:', error.message);
-            await db.logEvent('webhook_inbound_error', null, { error: error.message });
+            const apiErrorBody = error?.response?.data || error.message;
+            console.error('Gateway Inbound Webhook Background Error:', apiErrorBody);
+            await db.logEvent('webhook_inbound_error', null, { error: apiErrorBody });
         }
     });
 });
