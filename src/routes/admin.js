@@ -38,11 +38,16 @@ router.post('/tenants', async (req, res) => {
     res.status(201).json(data);
 });
 
-// 3. Update active status
+// 3. Update active status or Edit config
 router.put('/tenants/:id', async (req, res) => {
-    const { is_active } = req.body;
+    const updates = { ...req.body };
+    delete updates.id; // safeguard
+    if (updates.sim_number !== undefined) {
+        updates.sim_number = updates.sim_number ? parseInt(updates.sim_number) : null;
+    }
+
     const { data, error } = await supabase.from('tenants')
-        .update({ is_active })
+        .update(updates)
         .eq('id', req.params.id)
         .select().single();
 
@@ -50,10 +55,25 @@ router.put('/tenants/:id', async (req, res) => {
     res.json(data);
 });
 
-// 4. Delete tenant
+// 4. Delete tenant securely
 router.delete('/tenants/:id', async (req, res) => {
-    const { error } = await supabase.from('tenants').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
+    const tenantId = req.params.id;
+
+    // A. Fetch tenant to get its phone_number
+    const { data: tenant, error: fetchErr } = await supabase.from('tenants').select('phone_number').eq('id', tenantId).single();
+    if (fetchErr || !tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    // B. Safely cascade delete messages and logs to satisfy Foreign Key constraints
+    await supabase.from('logs').delete().eq('tenant_id', tenantId);
+    await supabase.from('messages').delete().eq('tenant_id', tenantId);
+
+    // C. Wipe sticky_routes tying conversations to this physical number (releasing the number)
+    await supabase.from('sticky_routes').delete().eq('gateway_phone', tenant.phone_number);
+
+    // D. Safe to delete tenant
+    const { error: delErr } = await supabase.from('tenants').delete().eq('id', tenantId);
+    if (delErr) return res.status(500).json({ error: delErr.message });
+    
     res.json({ success: true });
 });
 

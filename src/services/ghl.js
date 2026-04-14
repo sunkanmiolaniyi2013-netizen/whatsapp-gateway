@@ -7,6 +7,12 @@ const supabase = require('../db/supabase');
  * Phase 5 Upgrade: Automatically searches for sibling tokens if the current row is blank!
  */
 async function getValidAccessToken(tenant) {
+    // Immediate Fallback: If they provided a GHL Private Integration Token, bypass OAuth entirely!
+    if (tenant.ghl_api_key && tenant.ghl_api_key.startsWith('pit-')) {
+        console.log(`[API] Using Private Integration Token directly for Location ${tenant.ghl_location_id}`);
+        return tenant.ghl_api_key;
+    }
+
     if (!tenant.ghl_refresh_token) {
         console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching sibling phones for Location ID ${tenant.ghl_location_id}...`);
         const { data: sibling } = await supabase

@@ -48,7 +48,7 @@
                     <p class="text-muted mb-0">Manage the routing between GHL Locations and Android Phones.</p>
                 </div>
                 <div class="col-md-4 text-end">
-                    <button class="btn btn-primary fw-bold px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addTenantModal">
+                    <button class="btn btn-primary fw-bold px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addTenantModal" onclick="openAddModal()">
                         + Add New Business
                     </button>
                 </div>
@@ -93,8 +93,11 @@
                         <input type="text" id="gateway_base_url" class="form-control" required placeholder="https://api.sms-gate.app" value="https://api.sms-gate.app">
                     </div>
                     <div class="col-md-6 mb-3">
-                        <label class="form-label small text-muted">Gateway API Key (Optional)</label>
-                        <input type="text" id="gateway_api_key" class="form-control" placeholder="Optional">
+                        <label class="form-label small text-muted d-flex justify-content-between align-items-center mb-1">
+                            <span>Gateway API Key (Optional)</span>
+                            <a href="#" class="text-decoration-none small" onclick="calculateApiKey(event)">Calculate from App Login</a>
+                        </label>
+                        <input type="text" id="gateway_api_key" class="form-control" placeholder="Basic <base64>">
                     </div>
                     <div class="col-md-5 mb-3">
                         <label class="form-label small text-muted">Gateway Device ID (Optional)</label>
@@ -123,6 +126,8 @@
     <script>
         let apiKey = localStorage.getItem('adminApiKey');
         const API_BASE = '/api/admin';
+        let allTenants = [];
+        let editingTenantId = null;
 
         if (apiKey) showDashboard();
 
@@ -138,6 +143,16 @@
             document.getElementById('app-content').style.display = 'none';
             document.getElementById('logoutBtn').style.display = 'none';
             document.getElementById('login-section').style.display = 'flex';
+        }
+
+        function calculateApiKey(e) {
+            e.preventDefault();
+            const user = prompt("Enter the Username from the App Credentials (e.g. -JWOK4):");
+            if (!user) return;
+            const pass = prompt("Enter the Password from the App Credentials:");
+            if (!pass) return;
+            const encoded = btoa(user + ":" + pass);
+            document.getElementById('gateway_api_key').value = "Basic " + encoded;
         }
 
         function showDashboard() {
@@ -165,6 +180,7 @@
         async function loadTenants() {
             try {
                 const tenants = await authFetch(`${API_BASE}/tenants`);
+                allTenants = tenants;
                 const accordion = document.getElementById('tenantAccordion');
                 accordion.innerHTML = '';
                 
@@ -201,6 +217,7 @@
                                 <td class="align-middle small text-muted font-monospace">${t.gateway_base_url}</td>
                                 <td class="align-middle">${statusBadge}</td>
                                 <td class="align-middle text-end">
+                                    <button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal('${t.id}', event)">Edit</button>
                                     <button class="btn btn-sm btn-outline-secondary me-1" onclick="toggleTenant('${t.id}', ${toggleState}, event)">${toggleAction}</button>
                                     <button class="btn btn-sm btn-outline-danger" onclick="deleteTenant('${t.id}', event)">Delete</button>
                                 </td>
@@ -253,6 +270,34 @@
             }
         }
 
+        function openAddModal() {
+            editingTenantId = null;
+            document.getElementById('addTenantForm').reset();
+            document.querySelector('#addTenantModal .modal-title').textContent = 'Register New Business Route';
+            document.getElementById('gateway_base_url').value = 'https://api.sms-gate.app';
+        }
+
+        function openEditModal(id, e) {
+            e.stopPropagation();
+            editingTenantId = id;
+            const t = allTenants.find(x => x.id === id);
+            if (!t) return;
+            
+            document.querySelector('#addTenantModal .modal-title').textContent = 'Edit Business Route';
+            document.getElementById('business_name').value = t.business_name;
+            document.getElementById('phone_number').value = t.phone_number;
+            document.getElementById('ghl_location_id').value = t.ghl_location_id;
+            document.getElementById('ghl_api_key').value = t.ghl_api_key === 'N/A' ? '' : t.ghl_api_key;
+            document.getElementById('gateway_base_url').value = t.gateway_base_url;
+            document.getElementById('gateway_api_key').value = t.gateway_api_key;
+            document.getElementById('gateway_device_id').value = t.gateway_device_id;
+            document.getElementById('sim_number').value = t.sim_number || "";
+
+            const modalElement = document.getElementById('addTenantModal');
+            const modal = new bootstrap.Modal(modalElement);
+            modal.show();
+        }
+
         async function addTenant() {
             const saveBtn = document.querySelector('#addTenantModal .btn-primary');
             saveBtn.disabled = true;
@@ -269,9 +314,12 @@
                 sim_number: document.getElementById('sim_number').value ? parseInt(document.getElementById('sim_number').value) : null
             };
 
+            const url = editingTenantId ? `${API_BASE}/tenants/${editingTenantId}` : `${API_BASE}/tenants`;
+            const method = editingTenantId ? 'PUT' : 'POST';
+
             try {
-                const result = await authFetch(`${API_BASE}/tenants`, {
-                    method: 'POST',
+                const result = await authFetch(url, {
+                    method: method,
                     body: JSON.stringify(payload)
                 });
 
