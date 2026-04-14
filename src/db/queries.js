@@ -135,10 +135,9 @@ async function updateTenantOAuthTokens(locationId, accessToken, refreshToken, ex
             ghl_token_expires_at: expiresAt
         })
         .eq('ghl_location_id', locationId)
-        .select()
-        .single();
+        .select();
     if (error) console.error("Error saving OAuth tokens:", error);
-    return data;
+    return data ? data[0] : null;
 }
 
 // Phase 3: Sticky Router Functions --------------------------
