@@ -20,20 +20,21 @@ async function getValidAccessToken(tenant) {
             .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
             .eq('ghl_location_id', tenant.ghl_location_id)
             .not('ghl_refresh_token', 'is', null)
-            .limit(1)
-            .single();
+            .limit(1);
             
-        if (sibling && sibling.ghl_refresh_token) {
+        const siblingToken = sibling && sibling.length > 0 ? sibling[0] : null;
+            
+        if (siblingToken && siblingToken.ghl_refresh_token) {
             console.log(`[OAuth] Sibling tokens found! Inheriting...`);
-            tenant.ghl_access_token = sibling.ghl_access_token;
-            tenant.ghl_refresh_token = sibling.ghl_refresh_token;
-            tenant.ghl_token_expires_at = sibling.ghl_token_expires_at;
+            tenant.ghl_access_token = siblingToken.ghl_access_token;
+            tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
+            tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
             
             // Save them to this row permanently
             await supabase.from('tenants').update({
-                ghl_access_token: sibling.ghl_access_token,
-                ghl_refresh_token: sibling.ghl_refresh_token,
-                ghl_token_expires_at: sibling.ghl_token_expires_at
+                ghl_access_token: siblingToken.ghl_access_token,
+                ghl_refresh_token: siblingToken.ghl_refresh_token,
+                ghl_token_expires_at: siblingToken.ghl_token_expires_at
             }).eq('id', tenant.id);
         } else {
             throw new Error(`Location ${tenant.ghl_location_id} has not completed OAuth authorization! No sibling tokens found either.`);

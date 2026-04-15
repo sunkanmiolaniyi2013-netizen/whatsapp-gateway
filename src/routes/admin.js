@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const supabase = require('../db/supabase');
 const { requireAdmin } = require('../middleware/auth');
 
@@ -35,6 +36,21 @@ router.post('/tenants', async (req, res) => {
     }]).select().single();
 
     if (error) return res.status(500).json({ error: error.message });
+    
+    // Auto-Handshake: Automatically map the Incoming Webhook to the Cloud Server!
+    if (gateway_base_url && gateway_base_url.includes('sms-gate.app') && gateway_api_key) {
+        try {
+            await axios.post(
+                'https://api.sms-gate.app/3rdparty/v1/webhooks',
+                { url: 'https://sms-gateway-middleware-production.up.railway.app/webhooks/sms-inbound', event: 'sms:received' },
+                { headers: { 'Authorization': gateway_api_key, 'Content-Type': 'application/json' } }
+            );
+            console.log(`[Admin] Successfully securely auto-registered Webhook for new Phone!`);
+        } catch (whError) {
+            console.error(`[Admin] Warning: Auto-Handshake to sms-gate.app failed. Webhook might already exist.`, whError?.response?.data || whError.message);
+        }
+    }
+
     res.status(201).json(data);
 });
 
