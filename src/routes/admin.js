@@ -38,16 +38,32 @@ router.post('/tenants', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     
     // Auto-Handshake: Automatically map the Incoming Webhook to the Cloud Server!
+    // Checks for existing webhooks FIRST to prevent duplicates
     if (gateway_base_url && gateway_base_url.includes('sms-gate.app') && gateway_api_key) {
         try {
-            await axios.post(
+            const RAILWAY_WEBHOOK_URL = 'https://sms-gateway-middleware-production.up.railway.app/webhooks/sms-inbound';
+            
+            // Step 1: Fetch existing webhooks for this account
+            const existing = await axios.get(
                 'https://api.sms-gate.app/3rdparty/v1/webhooks',
-                { url: 'https://sms-gateway-middleware-production.up.railway.app/webhooks/sms-inbound', event: 'sms:received' },
-                { headers: { 'Authorization': gateway_api_key, 'Content-Type': 'application/json' } }
+                { headers: { 'Authorization': gateway_api_key } }
             );
-            console.log(`[Admin] Successfully securely auto-registered Webhook for new Phone!`);
+            
+            const alreadyExists = existing.data && existing.data.some(wh => wh.url === RAILWAY_WEBHOOK_URL && wh.event === 'sms:received');
+            
+            if (alreadyExists) {
+                console.log(`[Admin] Webhook already exists for this account — skipping registration to prevent duplicates.`);
+            } else {
+                // Step 2: Only register if it doesn't exist yet
+                await axios.post(
+                    'https://api.sms-gate.app/3rdparty/v1/webhooks',
+                    { url: RAILWAY_WEBHOOK_URL, event: 'sms:received' },
+                    { headers: { 'Authorization': gateway_api_key, 'Content-Type': 'application/json' } }
+                );
+                console.log(`[Admin] Successfully auto-registered Webhook for new Phone!`);
+            }
         } catch (whError) {
-            console.error(`[Admin] Warning: Auto-Handshake to sms-gate.app failed. Webhook might already exist.`, whError?.response?.data || whError.message);
+            console.error(`[Admin] Warning: Auto-Handshake failed.`, whError?.response?.data || whError.message);
         }
     }
 

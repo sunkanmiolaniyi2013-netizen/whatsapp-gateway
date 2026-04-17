@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twilio SMS Gateway — Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0d0f14;
+            --surface: #13161d;
+            --surface2: #1a1e28;
+            --border: #252a38;
+            --accent: #f22f46;   /* Twilio red */
+            --accent2: #ff6584;
+            --text: #e8eaf0;
+            --muted: #6b7280;
+            --green: #10b981;
+            --yellow: #f59e0b;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        header {
+            background: linear-gradient(135deg, #1a0a0d 0%, #0d0f14 60%);
+            border-bottom: 1px solid var(--border);
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .logo { display: flex; align-items: center; gap: 12px; }
+        .logo-icon {
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+        }
+        .logo h1 { font-size: 18px; font-weight: 600; }
+        .logo span { font-size: 12px; color: var(--muted); display: block; margin-top: 2px; }
+        .header-nav { display: flex; gap: 12px; align-items: center; }
+        .nav-link {
+            color: var(--muted); font-size: 13px; text-decoration: none;
+            padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+        .nav-link:hover { color: var(--text); border-color: var(--accent); }
+
+        /* ── Main ── */
+        main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+        .page-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+        .page-subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+
+        /* ── Info cards ── */
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .info-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+        .info-card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+        .info-card .val { font-family: monospace; font-size: 13px; color: var(--accent2); word-break: break-all; }
+        .info-card .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+        /* ── Panel ── */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .panel-title { font-size: 15px; font-weight: 600; }
+
+        /* ── Form ── */
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group.full { grid-column: 1 / -1; }
+        label { font-size: 12px; color: var(--muted); font-weight: 500; }
+        input, select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            padding: 10px 14px;
+            transition: border-color .2s;
+            outline: none;
+        }
+        input:focus, select:focus { border-color: var(--accent); }
+        .form-actions { display: flex; gap: 10px; margin-top: 16px; }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 18px; border-radius: 8px; border: none;
+            font-family: inherit; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all .2s;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: #d01f33; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 12px; font-size: 12px; }
+        .btn-danger:hover { background: #ef4444; color: #fff; }
+        .btn-edit { background: transparent; color: var(--accent2); border: 1px solid var(--accent2); padding: 5px 12px; font-size: 12px; }
+        .btn-edit:hover { background: var(--accent2); color: #000; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px 14px; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,.02); }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+        }
+        .badge-active { background: rgba(16,185,129,.15); color: var(--green); }
+        .badge-inactive { background: rgba(107,114,128,.15); color: var(--muted); }
+
+        /* ── Status bar ── */
+        #statusBar {
+            position: fixed; bottom: 24px; right: 24px;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 18px;
+            font-size: 13px; display: none; z-index: 999;
+            box-shadow: 0 4px 20px rgba(0,0,0,.4);
+        }
+        #statusBar.show { display: block; animation: fadeIn .2s; }
+        #statusBar.ok { border-color: var(--green); color: var(--green); }
+        #statusBar.err { border-color: #ef4444; color: #ef4444; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+        .empty { color: var(--muted); font-size: 13px; padding: 32px; text-align: center; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="logo-icon">📞</div>
+        <div>
+            <h1>Twilio SMS Gateway</h1>
+            <span>US / UK Phone Number Management</span>
+        </div>
+    </div>
+    <div class="header-nav">
+        <a href="/" class="nav-link">← Android Gateway</a>
+    </div>
+</header>
+
+<main>
+    <div class="page-title">Twilio Tenant Dashboard</div>
+    <div class="page-subtitle">Manage US &amp; UK Twilio numbers connected to GoHighLevel sub-accounts.</div>
+
+    <!-- Integration Info -->
+    <div class="info-grid">
+        <div class="info-card">
+            <h3>GHL Custom SMS Provider URL</h3>
+            <div class="val" id="providerUrl">Loading...</div>
+            <div class="hint">Paste this in GHL → Settings → Custom SMS Provider → Webhook URL</div>
+        </div>
+        <div class="info-card">
+            <h3>Twilio Inbound Webhook URL</h3>
+            <div class="val" id="twilioWebhookUrl">Loading...</div>
+            <div class="hint">Paste this in Twilio Console → Phone Number → Messaging → Webhook</div>
+        </div>
+    </div>
+
+    <!-- Add / Edit Form -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-title" id="formTitle">➕ Add Twilio Phone Number</div>
+            <button class="btn btn-secondary" id="cancelBtn" style="display:none" onclick="resetForm()">Cancel</button>
+        </div>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="business_name">Business / Client Name</label>
+                <input type="text" id="business_name" placeholder="e.g. Acme Corp USA">
+            </div>
+            <div class="form-group">
+                <label for="ghl_location_id">GHL Location ID</label>
+                <input type="text" id="ghl_location_id" placeholder="e.g. m2G2bfb79Bnj3ArHvLCq">
+            </div>
+            <div class="form-group">
+                <label for="phone_number">Twilio Phone Number</label>
+                <input type="text" id="phone_number" placeholder="e.g. +12025551234">
+            </div>
+            <div class="form-group">
+                <label for="is_active">Status</label>
+                <select id="is_active">
+                    <option value="true">Active</option>
+                    <option value="false">Inactive</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" id="saveBtn" onclick="saveTenant()">Save Number</button>
+        </div>
+    </div>
+
+    <!-- Tenant Table -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-title">All Twilio Numbers</div>
+            <button class="btn btn-secondary" onclick="loadTenants()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Business</th>
+                        <th>Twilio Number</th>
+                        <th>GHL Location ID</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tenantTableBody">
+                    <tr><td colspan="5" class="empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<div id="statusBar"></div>
+
+<script>
+    const API_BASE = '/api/twilio-admin';
+    const ADMIN_KEY = localStorage.getItem('adminKey') || promptForKey();
+
+    function promptForKey() {
+        const key = prompt('Enter Admin API Key:');
+        if (key) localStorage.setItem('adminKey', key);
+        return key;
+    }
+
+    async function authFetch(url, options = {}) {
+        options.headers = { ...options.headers, 'x-admin-key': ADMIN_KEY, 'Content-Type': 'application/json' };
+        const res = await fetch(url, options);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(err.error || res.statusText);
+        }
+        return res.json();
+    }
+
+    function showStatus(msg, ok = true) {
+        const bar = document.getElementById('statusBar');
+        bar.textContent = msg;
+        bar.className = 'show ' + (ok ? 'ok' : 'err');
+        clearTimeout(bar._t);
+        bar._t = setTimeout(() => bar.classList.remove('show'), 3500);
+    }
+
+    // Fill in the integration URLs dynamically
+    const base = window.location.origin;
+    document.getElementById('providerUrl').textContent = base + '/twilio/provider/send-message';
+    document.getElementById('twilioWebhookUrl').textContent = base + '/twilio/inbound';
+
+    // ── Tenants ────────────────────────────────────────────────────────────────
+    let editingId = null;
+
+    async function loadTenants() {
+        try {
+            const tenants = await authFetch(API_BASE + '/tenants');
+            const tbody = document.getElementById('tenantTableBody');
+            if (!tenants.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty">No Twilio numbers added yet.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = tenants.map(t => `
+                <tr>
+                    <td>${t.business_name}</td>
+                    <td style="font-family:monospace;color:#ff6584">${t.phone_number}</td>
+                    <td style="font-family:monospace;font-size:12px;color:#6b7280">${t.ghl_location_id}</td>
+                    <td><span class="badge ${t.is_active ? 'badge-active' : 'badge-inactive'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td style="display:flex;gap:8px;align-items:center">
+                        <button class="btn btn-edit" onclick="startEdit(${JSON.stringify(t).replace(/"/g,'&quot;')})">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteTenant('${t.id}','${t.business_name}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        } catch (e) {
+            showStatus('Failed to load: ' + e.message, false);
+        }
+    }
+
+    function startEdit(t) {
+        editingId = t.id;
+        document.getElementById('formTitle').textContent = '✏️ Edit Twilio Number';
+        document.getElementById('cancelBtn').style.display = '';
+        document.getElementById('business_name').value = t.business_name;
+        document.getElementById('ghl_location_id').value = t.ghl_location_id;
+        document.getElementById('phone_number').value = t.phone_number;
+        document.getElementById('is_active').value = String(t.is_active);
+        document.getElementById('saveBtn').textContent = 'Update Number';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetForm() {
+        editingId = null;
+        document.getElementById('formTitle').textContent = '➕ Add Twilio Phone Number';
+        document.getElementById('cancelBtn').style.display = 'none';
+        document.getElementById('business_name').value = '';
+        document.getElementById('ghl_location_id').value = '';
+        document.getElementById('phone_number').value = '';
+        document.getElementById('is_active').value = 'true';
+        document.getElementById('saveBtn').textContent = 'Save Number';
+    }
+
+    async function saveTenant() {
+        const payload = {
+            business_name: document.getElementById('business_name').value.trim(),
+            ghl_location_id: document.getElementById('ghl_location_id').value.trim(),
+            phone_number: document.getElementById('phone_number').value.trim(),
+            is_active: document.getElementById('is_active').value === 'true'
+        };
+        if (!payload.business_name || !payload.ghl_location_id || !payload.phone_number) {
+            return showStatus('Please fill in all required fields', false);
+        }
+        try {
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            if (editingId) {
+                await authFetch(API_BASE + '/tenants/' + editingId, { method: 'PUT', body: JSON.stringify(payload) });
+                showStatus('✅ Number updated!');
+            } else {
+                await authFetch(API_BASE + '/tenants', { method: 'POST', body: JSON.stringify(payload) });
+                showStatus('✅ Number added!');
+            }
+            resetForm();
+            loadTenants();
+        } catch (e) {
+            showStatus('Error: ' + e.message, false);
+        } finally {
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = false;
+            btn.textContent = editingId ? 'Update Number' : 'Save Number';
+        }
+    }
+
+    async function deleteTenant(id, name) {
+        if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+        try {
+            await authFetch(API_BASE + '/tenants/' + id, { method: 'DELETE' });
+            showStatus('🗑 Deleted successfully');
+            loadTenants();
+        } catch (e) {
+            showStatus('Delete failed: ' + e.message, false);
+        }
+    }
+
+    loadTenants();
+</script>
+</body>
+</html>
