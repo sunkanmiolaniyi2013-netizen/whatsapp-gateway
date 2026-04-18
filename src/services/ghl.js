@@ -13,16 +13,32 @@ async function getValidAccessToken(tenant) {
         return tenant.ghl_api_key;
     }
 
+    const tableName = tenant.gateway_device_id !== undefined ? 'tenants' : 'twilio_tenants';
+
     if (!tenant.ghl_refresh_token) {
         console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching sibling phones for Location ID ${tenant.ghl_location_id}...`);
-        const { data: sibling } = await supabase
+        
+        let siblingToken = null;
+
+        // Try Android table first
+        const { data: sibling1 } = await supabase
             .from('tenants')
             .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
             .eq('ghl_location_id', tenant.ghl_location_id)
             .not('ghl_refresh_token', 'is', null)
             .limit(1);
-            
-        const siblingToken = sibling && sibling.length > 0 ? sibling[0] : null;
+        if (sibling1 && sibling1.length > 0) siblingToken = sibling1[0];
+
+        // Try Twilio table if not found
+        if (!siblingToken) {
+            const { data: sibling2 } = await supabase
+                .from('twilio_tenants')
+                .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+                .eq('ghl_location_id', tenant.ghl_location_id)
+                .not('ghl_refresh_token', 'is', null)
+                .limit(1);
+            if (sibling2 && sibling2.length > 0) siblingToken = sibling2[0];
+        }
             
         if (siblingToken && siblingToken.ghl_refresh_token) {
             console.log(`[OAuth] Sibling tokens found! Inheriting...`);
@@ -30,8 +46,8 @@ async function getValidAccessToken(tenant) {
             tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
             tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
             
-            // Save them to this row permanently
-            await supabase.from('tenants').update({
+            // Save them to THIS row permanently
+            await supabase.from(tableName).update({
                 ghl_access_token: siblingToken.ghl_access_token,
                 ghl_refresh_token: siblingToken.ghl_refresh_token,
                 ghl_token_expires_at: siblingToken.ghl_token_expires_at
@@ -60,7 +76,7 @@ async function getValidAccessToken(tenant) {
 
         // Save new tokens securely
         const newExpiresAt = new Date(Date.now() + (res.data.expires_in * 1000));
-        await supabase.from('tenants').update({
+        await supabase.from(tableName).update({
             ghl_access_token: res.data.access_token,
             ghl_refresh_token: res.data.refresh_token,
             ghl_token_expires_at: newExpiresAt
