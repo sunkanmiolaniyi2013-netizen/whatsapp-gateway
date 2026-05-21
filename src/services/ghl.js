@@ -3,42 +3,31 @@ const config = require('../config');
 const supabase = require('../db/supabase');
 
 /**
- * Ensures the tenant has a valid Access Token. If expired, automatically refreshes it.
- * Phase 5 Upgrade: Automatically searches for sibling tokens if the current row is blank!
+ * Ensures the tenant has a valid Access Token.
+ * Priority: OAuth (primary) → PIT bypass (fallback for tenants configured with pit- key)
+ * Tokens are refreshed automatically if expired. A background job in tokenRefreshJob.js
+ * keeps all tokens warm proactively so they never expire during periods of inactivity.
  */
 async function getValidAccessToken(tenant) {
-    // Immediate Fallback: If they provided a GHL Private Integration Token, bypass OAuth entirely!
+    // PIT Bypass: If this tenant has a Private Integration Token, use it directly.
+    // This is a per-tenant fallback — not the primary auth method.
     if (tenant.ghl_api_key && tenant.ghl_api_key.startsWith('pit-')) {
-        console.log(`[API] Using Private Integration Token directly for Location ${tenant.ghl_location_id}`);
+        console.log(`[API] Using Private Integration Token for Location ${tenant.ghl_location_id}`);
         return tenant.ghl_api_key;
     }
 
+    // Determine which table this tenant lives in so we can save refreshed tokens back
     const tableName = tenant.gateway_device_id !== undefined ? 'tenants' : 'twilio_tenants';
 
+    // ── Sibling Token Lookup ─────────────────────────────────────────────────
+    // If this specific row has no refresh token yet, look for one from a sibling
+    // tenant on the same location (e.g. a Twilio tenant inheriting from Android).
     if (!tenant.ghl_refresh_token) {
-        console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching siblings for Location ID ${tenant.ghl_location_id}...`);
+        console.log(`[OAuth] Row ${tenant.id} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
 
-        // ── Step 1: PIT Key Sibling Check (fastest & most reliable fallback) ──
-        // If any Android tenant for this location has a Private Integration Token,
-        // return it immediately — no OAuth refresh needed at all.
-        // This also fixes Twilio tenants, which have no ghl_api_key column of their own.
-        const { data: pitSiblings } = await supabase
-            .from('tenants')
-            .select('ghl_api_key')
-            .eq('ghl_location_id', tenant.ghl_location_id)
-            .like('ghl_api_key', 'pit-%')
-            .limit(1);
-
-        if (pitSiblings && pitSiblings.length > 0) {
-            console.log(`[OAuth] PIT key found in Android sibling for location ${tenant.ghl_location_id}. Using it directly.`);
-            return pitSiblings[0].ghl_api_key;
-        }
-
-        // ── Step 2: OAuth Token Sibling Search ───────────────────────────────
-        // No PIT found — try to inherit OAuth tokens from a sibling tenant row.
         let siblingToken = null;
 
-        // Try Android table first
+        // Check Android tenants first
         const { data: sibling1 } = await supabase
             .from('tenants')
             .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
@@ -47,7 +36,7 @@ async function getValidAccessToken(tenant) {
             .limit(1);
         if (sibling1 && sibling1.length > 0) siblingToken = sibling1[0];
 
-        // Try Twilio table if not found in Android
+        // Check Twilio tenants if not found
         if (!siblingToken) {
             const { data: sibling2 } = await supabase
                 .from('twilio_tenants')
@@ -57,52 +46,58 @@ async function getValidAccessToken(tenant) {
                 .limit(1);
             if (sibling2 && sibling2.length > 0) siblingToken = sibling2[0];
         }
-            
+
         if (siblingToken && siblingToken.ghl_refresh_token) {
-            console.log(`[OAuth] Sibling OAuth tokens found! Inheriting...`);
+            console.log(`[OAuth] Sibling tokens found! Inheriting into row ${tenant.id}...`);
             tenant.ghl_access_token = siblingToken.ghl_access_token;
             tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
             tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
-            
-            // Save them to THIS row permanently so we don't repeat this lookup
+
+            // Persist them so future calls don't need to do the sibling lookup again
             await supabase.from(tableName).update({
                 ghl_access_token: siblingToken.ghl_access_token,
                 ghl_refresh_token: siblingToken.ghl_refresh_token,
                 ghl_token_expires_at: siblingToken.ghl_token_expires_at
             }).eq('id', tenant.id);
         } else {
-            throw new Error(`Location ${tenant.ghl_location_id} has no PIT key and no valid OAuth tokens. Go to Admin → Connect GHL to authorize.`);
+            throw new Error(
+                `Location ${tenant.ghl_location_id} has no valid OAuth tokens. ` +
+                `Please re-authorize via the GHL Marketplace install flow or Admin → Connect GHL.`
+            );
         }
     }
 
+    // ── Token Refresh ────────────────────────────────────────────────────────
+    // If the access token is expired or expiring within 15 minutes, refresh it now.
+    // GHL rotates both access AND refresh tokens on every refresh call.
     const now = new Date();
     const expiresAt = new Date(tenant.ghl_token_expires_at);
-    
-    // If the token expires in the next 15 minutes, or is already expired, refresh it!
+
     if (expiresAt.getTime() - now.getTime() < 15 * 60 * 1000) {
-        console.log(`Token expired/expiring for ${tenant.ghl_location_id}, refreshing now...`);
-        const data = new URLSearchParams({
+        console.log(`[OAuth] Token expired/expiring for ${tenant.ghl_location_id}. Refreshing...`);
+
+        const formData = new URLSearchParams({
             client_id: config.GHL_CLIENT_ID,
             client_secret: config.GHL_CLIENT_SECRET,
             grant_type: 'refresh_token',
             refresh_token: tenant.ghl_refresh_token
         }).toString();
 
-        const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', data, {
+        const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', formData, {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        // Save new tokens securely
-        const newExpiresAt = new Date(Date.now() + (res.data.expires_in * 1000));
+        const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000);
+
         await supabase.from(tableName).update({
             ghl_access_token: res.data.access_token,
             ghl_refresh_token: res.data.refresh_token,
             ghl_token_expires_at: newExpiresAt
         }).eq('id', tenant.id);
-        
+
         tenant.ghl_access_token = res.data.access_token;
         tenant.ghl_refresh_token = res.data.refresh_token;
-        console.log(`Token successfully refreshed for ${tenant.ghl_location_id}`);
+        console.log(`[OAuth] ✅ Token refreshed successfully for ${tenant.ghl_location_id}`);
     }
 
     return tenant.ghl_access_token;

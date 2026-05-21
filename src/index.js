@@ -38,4 +38,11 @@ app.get('/health', (req, res) => {
 app.listen(config.PORT, () => {
     console.log(`🚀 SMS Gateway Middleware running on port ${config.PORT}`);
     console.log(`👉 Health check: http://localhost:${config.PORT}/health`);
+
+    // Proactive OAuth token refresh — runs every 12 hours so tokens never
+    // expire during periods of inactivity (e.g. weekends, holidays).
+    // Also runs immediately on boot to rescue any tokens that expired during downtime.
+    const { startTokenRefreshJob } = require('./services/tokenRefreshJob');
+    startTokenRefreshJob();
 });
+
