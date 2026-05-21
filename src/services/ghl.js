@@ -1,0 +1,155 @@
+const axios = require('axios');
+const config = require('../config');
+const supabase = require('../db/supabase');
+
+/**
+ * Ensures the tenant has a valid Access Token. If expired, automatically refreshes it.
+ * Phase 5 Upgrade: Automatically searches for sibling tokens if the current row is blank!
+ */
+async function getValidAccessToken(tenant) {
+    // Immediate Fallback: If they provided a GHL Private Integration Token, bypass OAuth entirely!
+    if (tenant.ghl_api_key && tenant.ghl_api_key.startsWith('pit-')) {
+        console.log(`[API] Using Private Integration Token directly for Location ${tenant.ghl_location_id}`);
+        return tenant.ghl_api_key;
+    }
+
+    const tableName = tenant.gateway_device_id !== undefined ? 'tenants' : 'twilio_tenants';
+
+    if (!tenant.ghl_refresh_token) {
+        console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching sibling phones for Location ID ${tenant.ghl_location_id}...`);
+        
+        let siblingToken = null;
+
+        // Try Android table first
+        const { data: sibling1 } = await supabase
+            .from('tenants')
+            .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+            .eq('ghl_location_id', tenant.ghl_location_id)
+            .not('ghl_refresh_token', 'is', null)
+            .limit(1);
+        if (sibling1 && sibling1.length > 0) siblingToken = sibling1[0];
+
+        // Try Twilio table if not found
+        if (!siblingToken) {
+            const { data: sibling2 } = await supabase
+                .from('twilio_tenants')
+                .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+                .eq('ghl_location_id', tenant.ghl_location_id)
+                .not('ghl_refresh_token', 'is', null)
+                .limit(1);
+            if (sibling2 && sibling2.length > 0) siblingToken = sibling2[0];
+        }
+            
+        if (siblingToken && siblingToken.ghl_refresh_token) {
+            console.log(`[OAuth] Sibling tokens found! Inheriting...`);
+            tenant.ghl_access_token = siblingToken.ghl_access_token;
+            tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
+            tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
+            
+            // Save them to THIS row permanently
+            await supabase.from(tableName).update({
+                ghl_access_token: siblingToken.ghl_access_token,
+                ghl_refresh_token: siblingToken.ghl_refresh_token,
+                ghl_token_expires_at: siblingToken.ghl_token_expires_at
+            }).eq('id', tenant.id);
+        } else {
+            throw new Error(`Location ${tenant.ghl_location_id} has not completed OAuth authorization! No sibling tokens found either.`);
+        }
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(tenant.ghl_token_expires_at);
+    
+    // If the token expires in the next 15 minutes, or is already expired, refresh it!
+    if (expiresAt.getTime() - now.getTime() < 15 * 60 * 1000) {
+        console.log(`Token expired/expiring for ${tenant.ghl_location_id}, refreshing now...`);
+        const data = new URLSearchParams({
+            client_id: config.GHL_CLIENT_ID,
+            client_secret: config.GHL_CLIENT_SECRET,
+            grant_type: 'refresh_token',
+            refresh_token: tenant.ghl_refresh_token
+        }).toString();
+
+        const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', data, {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        // Save new tokens securely
+        const newExpiresAt = new Date(Date.now() + (res.data.expires_in * 1000));
+        await supabase.from(tableName).update({
+            ghl_access_token: res.data.access_token,
+            ghl_refresh_token: res.data.refresh_token,
+            ghl_token_expires_at: newExpiresAt
+        }).eq('id', tenant.id);
+        
+        tenant.ghl_access_token = res.data.access_token;
+        tenant.ghl_refresh_token = res.data.refresh_token;
+        console.log(`Token successfully refreshed for ${tenant.ghl_location_id}`);
+    }
+
+    return tenant.ghl_access_token;
+}
+
+/**
+ * Pushes an inbound SMS reply into GoHighLevel's conversation inbox
+ * Used for routing Android Gateway texts back into GHL's UI natively
+ */
+async function pushInboundMessageToGHL(tenant, fromNumber, body) {
+    try {
+        const token = await getValidAccessToken(tenant);
+        let contactId = null;
+
+        try {
+            // Find the contact in GHL to get their ID (required for inbound V2 API)
+            const searchRes = await axios.get(
+                `https://services.leadconnectorhq.com/contacts/?locationId=${tenant.ghl_location_id}&query=${encodeURIComponent(fromNumber)}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Version': '2021-07-28',
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+            if (searchRes.data?.contacts?.length > 0) {
+                contactId = searchRes.data.contacts[0].id;
+            }
+        } catch (e) {
+            console.error('Failed to look up contact ID:', e.message);
+        }
+
+        const payload = {
+            type: 'SMS',
+            to: tenant.phone_number,
+            from: fromNumber,
+            message: body
+        };
+
+        if (contactId) {
+            payload.contactId = contactId;
+        }
+
+        const response = await axios.post(
+            'https://services.leadconnectorhq.com/conversations/messages/inbound',
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Version': '2021-04-15',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        return response.data;
+    } catch (error) {
+        console.error('Error posting inbound message to GHL:', error?.response?.data || error.message);
+        throw error;
+    }
+}
+
+module.exports = {
+    pushInboundMessageToGHL,
+    getValidAccessToken
+};

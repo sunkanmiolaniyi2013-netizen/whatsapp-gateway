@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMS Gateway - Admin Dashboard</title>
+    <!-- Modern UI dependencies -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; }
+        .navbar { background: linear-gradient(135deg, #2b5876 0%, #4e4376 100%); }
+        .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .btn-primary { background-color: #4e4376; border: none; }
+        .btn-primary:hover { background-color: #2b5876; }
+        .table-rounded { border-radius: 12px; overflow: hidden; }
+        #app-content { display: none; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark mb-4 py-3">
+        <div class="container d-flex justify-content-between align-items-center">
+            <span class="navbar-brand mb-0 h1 fw-bold">📱 SMS Gateway Middleware</span>
+            <div class="d-flex align-items-center gap-2">
+                <a href="/twilio.html" class="btn btn-sm btn-outline-light fw-semibold">📞 Twilio Numbers →</a>
+                <button id="logoutBtn" class="btn btn-sm btn-outline-light" style="display:none;" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        
+        <!-- Login Section -->
+        <div id="login-section" class="row justify-content-center">
+            <div class="col-md-5">
+                <div class="card p-4 text-center mt-5">
+                    <h4 class="fw-bold mb-3">Admin Access</h4>
+                    <p class="text-muted small">Enter your Admin API Key to manage the tenants.</p>
+                    <input type="password" id="apiKeyInput" class="form-control mb-3" placeholder="Admin API Key">
+                    <button class="btn btn-primary w-100" onclick="login()">Login</button>
+                    <div id="login-error" class="text-danger mt-2 small" style="display:none;">Invalid API Key</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="app-content">
+            <div class="row mb-4 align-items-center">
+                <div class="col-md-8">
+                    <h3 class="fw-bold m-0">Registered Businesses (Tenants)</h3>
+                    <p class="text-muted mb-0">Manage the routing between GHL Locations and Android Phones.</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-primary fw-bold px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#addTenantModal" onclick="openAddModal()">
+                        + Add New Business
+                    </button>
+                </div>
+            </div>
+
+            <div class="accordion mt-3" id="tenantAccordion">
+                <!-- Dynamic folder content -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Add Tenant Modal -->
+    <div class="modal fade" id="addTenantModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header border-0 pb-0">
+            <h5 class="modal-title fw-bold">Register New Business Route</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <form id="addTenantForm">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small text-muted">Business Name</label>
+                        <input type="text" id="business_name" class="form-control" required placeholder="e.g. Acme Corp">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small text-muted">Android Phone Number (with +)</label>
+                        <input type="text" id="phone_number" class="form-control" required placeholder="e.g. +447911000000">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small text-muted">GHL Location ID</label>
+                        <input type="text" id="ghl_location_id" class="form-control" required placeholder="GHL Location ID">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small text-muted">GHL Private Integration Key <span class="text-success">(Optional - OAuth handles this)</span></label>
+                        <input type="text" id="ghl_api_key" class="form-control" placeholder="Leave blank - OAuth handles auth">
+                    </div>
+                    <div class="col-md-12 mb-3">
+                        <label class="form-label small text-muted">Android Gateway Cloud URL</label>
+                        <input type="text" id="gateway_base_url" class="form-control" required placeholder="https://api.sms-gate.app" value="https://api.sms-gate.app">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small text-muted d-flex justify-content-between align-items-center mb-1">
+                            <span>Gateway API Key (Optional)</span>
+                            <a href="#" class="text-decoration-none small" onclick="calculateApiKey(event)">Calculate from App Login</a>
+                        </label>
+                        <input type="text" id="gateway_api_key" class="form-control" placeholder="Basic <base64>">
+                    </div>
+                    <div class="col-md-5 mb-3">
+                        <label class="form-label small text-muted">Gateway Device ID (Optional)</label>
+                        <input type="text" id="gateway_device_id" class="form-control" placeholder="Optional">
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label small text-muted">SIM Tray Slot</label>
+                        <select id="sim_number" class="form-control">
+                            <option value="">Default (Auto)</option>
+                            <option value="1">SIM 1</option>
+                            <option value="2">SIM 2</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+          </div>
+          <div class="modal-footer border-0 pt-0">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary px-4" onclick="addTenant()">Save Business</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let apiKey = localStorage.getItem('adminApiKey');
+        const API_BASE = '/api/admin';
+        let allTenants = [];
+        let editingTenantId = null;
+
+        if (apiKey) showDashboard();
+
+        function login() {
+            apiKey = document.getElementById('apiKeyInput').value;
+            localStorage.setItem('adminApiKey', apiKey);
+            showDashboard();
+        }
+
+        function logout() {
+            localStorage.removeItem('adminApiKey');
+            apiKey = null;
+            document.getElementById('app-content').style.display = 'none';
+            document.getElementById('logoutBtn').style.display = 'none';
+            document.getElementById('login-section').style.display = 'flex';
+        }
+
+        function calculateApiKey(e) {
+            e.preventDefault();
+            const user = prompt("Enter the Username from the App Credentials (e.g. -JWOK4):");
+            if (!user) return;
+            const pass = prompt("Enter the Password from the App Credentials:");
+            if (!pass) return;
+            const encoded = btoa(user + ":" + pass);
+            document.getElementById('gateway_api_key').value = "Basic " + encoded;
+        }
+
+        function showDashboard() {
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('app-content').style.display = 'block';
+            document.getElementById('logoutBtn').style.display = 'block';
+            loadTenants();
+        }
+
+        async function authFetch(url, options = {}) {
+            options.headers = {
+                ...options.headers,
+                'x-admin-key': apiKey,
+                'Content-Type': 'application/json'
+            };
+            const res = await fetch(url, options);
+            if (res.status === 401) {
+                document.getElementById('login-error').style.display = 'block';
+                logout();
+                throw new Error('Unauthorized');
+            }
+            return res.json();
+        }
+
+        async function loadTenants() {
+            try {
+                const tenants = await authFetch(`${API_BASE}/tenants`);
+                allTenants = tenants;
+                const accordion = document.getElementById('tenantAccordion');
+                accordion.innerHTML = '';
+                
+                // Group by location_id
+                const groups = {};
+                tenants.forEach(t => {
+                    const id = t.ghl_location_id;
+                    if (!groups[id]) {
+                        groups[id] = {
+                            business_name: t.business_name,
+                            location_id: id,
+                            phones: []
+                        };
+                    }
+                    groups[id].phones.push(t);
+                });
+
+                let i = 0;
+                for (const locId in groups) {
+                    const group = groups[locId];
+                    let phoneRows = '';
+
+                    group.phones.forEach(t => {
+                        const statusBadge = t.is_active 
+                            ? `<span class="badge bg-success shadow-sm">Active</span>` 
+                            : `<span class="badge bg-secondary shadow-sm">Inactive</span>`;
+                        const toggleAction = t.is_active ? 'Disable' : 'Enable';
+                        const toggleState = !t.is_active;
+
+                        const simBadge = t.sim_number ? `<span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">SIM ${t.sim_number}</span>` : `<span class="badge bg-light text-dark border ms-1" style="font-size: 0.7em;">Auto SIM</span>`;
+                        phoneRows += `
+                            <tr>
+                                <td class="align-middle fw-medium">${t.phone_number} ${simBadge}</td>
+                                <td class="align-middle small text-muted font-monospace">${t.gateway_base_url}</td>
+                                <td class="align-middle">${statusBadge}</td>
+                                <td class="align-middle text-end">
+                                    <button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal('${t.id}', event)">Edit</button>
+                                    <button class="btn btn-sm btn-outline-secondary me-1" onclick="toggleTenant('${t.id}', ${toggleState}, event)">${toggleAction}</button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteTenant('${t.id}', event)">Delete</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    accordion.innerHTML += `
+                        <div class="accordion-item border-0 mb-3 shadow-sm rounded-3 overflow-hidden">
+                          <h2 class="accordion-header" id="heading-${i}">
+                            <button class="accordion-button collapsed bg-white py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${i}">
+                               <div class="d-flex w-100 justify-content-between align-items-center me-3">
+                                   <div>
+                                       <span class="fs-5 me-2">🏢</span> 
+                                       <span class="fw-bold fs-5 text-dark">${group.business_name}</span>
+                                       <span class="badge bg-primary bg-opacity-10 text-primary ms-3 rounded-pill">${group.phones.length} Phone(s)</span>
+                                   </div>
+                                   <small class="text-muted fw-normal font-monospace">Loc ID: ${group.location_id}</small>
+                               </div>
+                            </button>
+                          </h2>
+                          <div id="collapse-${i}" class="accordion-collapse collapse" data-bs-parent="#tenantAccordion">
+                            <div class="accordion-body bg-light p-0">
+                               <table class="table table-hover mb-0 align-middle">
+                                    <thead class="table-light text-muted small">
+                                        <tr>
+                                            <th class="ps-4">Phone Number</th>
+                                            <th>Gateway API URL</th>
+                                            <th>Status</th>
+                                            <th class="text-end pe-4">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="border-top-0 ps-3">
+                                        ${phoneRows}
+                                    </tbody>
+                               </table>
+                            </div>
+                          </div>
+                        </div>
+                    `;
+                    i++;
+                }
+
+                if (Object.keys(groups).length === 0) {
+                    accordion.innerHTML = `<div class="text-center p-5 text-muted">No businesses registered yet. Click "Add New Business" to start.</div>`;
+                }
+
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        function openAddModal() {
+            editingTenantId = null;
+            document.getElementById('addTenantForm').reset();
+            document.querySelector('#addTenantModal .modal-title').textContent = 'Register New Business Route';
+            document.getElementById('gateway_base_url').value = 'https://api.sms-gate.app';
+        }
+
+        function openEditModal(id, e) {
+            e.stopPropagation();
+            editingTenantId = id;
+            const t = allTenants.find(x => x.id === id);
+            if (!t) return;
+            
+            document.querySelector('#addTenantModal .modal-title').textContent = 'Edit Business Route';
+            document.getElementById('business_name').value = t.business_name;
+            document.getElementById('phone_number').value = t.phone_number;
+            document.getElementById('ghl_location_id').value = t.ghl_location_id;
+            document.getElementById('ghl_api_key').value = t.ghl_api_key === 'N/A' ? '' : t.ghl_api_key;
+            document.getElementById('gateway_base_url').value = t.gateway_base_url;
+            document.getElementById('gateway_api_key').value = t.gateway_api_key;
+            document.getElementById('gateway_device_id').value = t.gateway_device_id;
+            document.getElementById('sim_number').value = t.sim_number || "";
+
+            const modalElement = document.getElementById('addTenantModal');
+            const modal = new bootstrap.Modal(modalElement);
+            modal.show();
+        }
+
+        async function addTenant() {
+            const saveBtn = document.querySelector('#addTenantModal .btn-primary');
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            const payload = {
+                business_name: document.getElementById('business_name').value,
+                phone_number: document.getElementById('phone_number').value,
+                ghl_location_id: document.getElementById('ghl_location_id').value,
+                ghl_api_key: document.getElementById('ghl_api_key').value || 'N/A',
+                gateway_base_url: document.getElementById('gateway_base_url').value,
+                gateway_api_key: document.getElementById('gateway_api_key').value,
+                gateway_device_id: document.getElementById('gateway_device_id').value,
+                sim_number: document.getElementById('sim_number').value ? parseInt(document.getElementById('sim_number').value) : null
+            };
+
+            const url = editingTenantId ? `${API_BASE}/tenants/${editingTenantId}` : `${API_BASE}/tenants`;
+            const method = editingTenantId ? 'PUT' : 'POST';
+
+            try {
+                const result = await authFetch(url, {
+                    method: method,
+                    body: JSON.stringify(payload)
+                });
+
+                if (result && result.error) {
+                    alert('Error saving: ' + result.error);
+                } else {
+                    // Success! Close modal and refresh list
+                    const modalElement = document.getElementById('addTenantModal');
+                    const modal = bootstrap.Modal.getInstance(modalElement);
+                    modal.hide();
+                    document.getElementById('addTenantForm').reset();
+                    loadTenants();
+                }
+            } catch (err) {
+                alert('Failed to save business: ' + err.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Business';
+            }
+        }
+
+        async function toggleTenant(id, newState, e) {
+            e.stopPropagation();
+            await authFetch(`${API_BASE}/tenants/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify({ is_active: newState })
+            });
+            loadTenants();
+        }
+
+        async function deleteTenant(id, e) {
+            e.stopPropagation();
+            if(confirm('Are you sure you want to delete this business route?')) {
+                await authFetch(`${API_BASE}/tenants/${id}`, { method: 'DELETE' });
+                loadTenants();
+            }
+        }
+    </script>
+</body>
+</html>
