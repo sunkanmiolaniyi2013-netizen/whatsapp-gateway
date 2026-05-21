@@ -25,6 +25,24 @@ async function getValidAccessToken(tenant) {
     if (!tenant.ghl_refresh_token) {
         console.log(`[OAuth] Row ${tenant.id} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
 
+        // ── Fallback 1: PIT Key Sibling ───────────────────────────────────────
+        // If any Android tenant for this location has a Private Integration Token,
+        // return it immediately. This covers BOTH Android and Twilio inbound paths
+        // when OAuth tokens are missing — the ultimate bulletproof fallback.
+        const { data: pitSiblings } = await supabase
+            .from('tenants')
+            .select('ghl_api_key')
+            .eq('ghl_location_id', tenant.ghl_location_id)
+            .like('ghl_api_key', 'pit-%')
+            .limit(1);
+
+        if (pitSiblings && pitSiblings.length > 0) {
+            console.log(`[OAuth] ✅ PIT fallback: using Android sibling PIT key for location ${tenant.ghl_location_id}`);
+            return pitSiblings[0].ghl_api_key;
+        }
+
+        // ── Fallback 2: OAuth Token Sibling ───────────────────────────────────
+        // No PIT found — try to inherit OAuth tokens from any sibling tenant row.
         let siblingToken = null;
 
         // Check Android tenants first
@@ -36,7 +54,7 @@ async function getValidAccessToken(tenant) {
             .limit(1);
         if (sibling1 && sibling1.length > 0) siblingToken = sibling1[0];
 
-        // Check Twilio tenants if not found
+        // Check Twilio tenants if not found in Android
         if (!siblingToken) {
             const { data: sibling2 } = await supabase
                 .from('twilio_tenants')
@@ -61,8 +79,8 @@ async function getValidAccessToken(tenant) {
             }).eq('id', tenant.id);
         } else {
             throw new Error(
-                `Location ${tenant.ghl_location_id} has no valid OAuth tokens. ` +
-                `Please re-authorize via the GHL Marketplace install flow or Admin → Connect GHL.`
+                `Location ${tenant.ghl_location_id} has no PIT key and no valid OAuth tokens. ` +
+                `Add a PIT key to the Android tenant or re-authorize via the GHL Marketplace.`
             );
         }
     }

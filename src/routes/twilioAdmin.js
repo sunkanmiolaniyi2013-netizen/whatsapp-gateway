@@ -15,7 +15,7 @@ router.get('/tenants', async (req, res) => {
 
 // 2. Add a new Twilio tenant
 router.post('/tenants', async (req, res) => {
-    const { business_name, ghl_location_id, phone_number } = req.body;
+    const { business_name, ghl_location_id, phone_number, ghl_api_key } = req.body;
 
     if (!business_name || !ghl_location_id || !phone_number) {
         return res.status(400).json({ error: 'business_name, ghl_location_id and phone_number are required' });
@@ -25,6 +25,7 @@ router.post('/tenants', async (req, res) => {
         business_name,
         ghl_location_id,
         phone_number,
+        ghl_api_key: ghl_api_key || null,
         is_active: true
     }]).select().single();
 

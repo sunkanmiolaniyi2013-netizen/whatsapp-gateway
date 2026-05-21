@@ -202,6 +202,10 @@
                 <input type="text" id="phone_number" placeholder="e.g. +12025551234">
             </div>
             <div class="form-group">
+                <label for="ghl_api_key">GHL API Key / PIT <span style="color:var(--muted);font-weight:400">(optional — leave blank to use OAuth)</span></label>
+                <input type="text" id="ghl_api_key" placeholder="pit-xxxxxxxx..." autocomplete="off">
+            </div>
+            <div class="form-group">
                 <label for="is_active">Status</label>
                 <select id="is_active">
                     <option value="true">Active</option>
@@ -227,6 +231,7 @@
                         <th>Business</th>
                         <th>Twilio Number</th>
                         <th>GHL Location ID</th>
+                        <th>PIT Key</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -290,6 +295,7 @@
                     <td>${t.business_name}</td>
                     <td style="font-family:monospace;color:#ff6584">${t.phone_number}</td>
                     <td style="font-family:monospace;font-size:12px;color:#6b7280">${t.ghl_location_id}</td>
+                    <td style="font-family:monospace;font-size:11px;color:#10b981">${t.ghl_api_key ? '✅ ' + t.ghl_api_key.slice(0,16) + '...' : '<span style="color:#6b7280">OAuth / Sibling</span>'}</td>
                     <td><span class="badge ${t.is_active ? 'badge-active' : 'badge-inactive'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td style="display:flex;gap:8px;align-items:center">
                         <button class="btn btn-edit" onclick="startEdit(${JSON.stringify(t).replace(/"/g,'&quot;')})">Edit</button>
@@ -309,6 +315,7 @@
         document.getElementById('business_name').value = t.business_name;
         document.getElementById('ghl_location_id').value = t.ghl_location_id;
         document.getElementById('phone_number').value = t.phone_number;
+        document.getElementById('ghl_api_key').value = t.ghl_api_key || '';
         document.getElementById('is_active').value = String(t.is_active);
         document.getElementById('saveBtn').textContent = 'Update Number';
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -321,15 +328,18 @@
         document.getElementById('business_name').value = '';
         document.getElementById('ghl_location_id').value = '';
         document.getElementById('phone_number').value = '';
+        document.getElementById('ghl_api_key').value = '';
         document.getElementById('is_active').value = 'true';
         document.getElementById('saveBtn').textContent = 'Save Number';
     }
 
     async function saveTenant() {
+        const ghl_api_key = document.getElementById('ghl_api_key').value.trim();
         const payload = {
             business_name: document.getElementById('business_name').value.trim(),
             ghl_location_id: document.getElementById('ghl_location_id').value.trim(),
             phone_number: document.getElementById('phone_number').value.trim(),
+            ghl_api_key: ghl_api_key || null,
             is_active: document.getElementById('is_active').value === 'true'
         };
         if (!payload.business_name || !payload.ghl_location_id || !payload.phone_number) {
