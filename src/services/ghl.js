@@ -16,8 +16,26 @@ async function getValidAccessToken(tenant) {
     const tableName = tenant.gateway_device_id !== undefined ? 'tenants' : 'twilio_tenants';
 
     if (!tenant.ghl_refresh_token) {
-        console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching sibling phones for Location ID ${tenant.ghl_location_id}...`);
-        
+        console.log(`[OAuth] Row ${tenant.id} missing tokens. Searching siblings for Location ID ${tenant.ghl_location_id}...`);
+
+        // ── Step 1: PIT Key Sibling Check (fastest & most reliable fallback) ──
+        // If any Android tenant for this location has a Private Integration Token,
+        // return it immediately — no OAuth refresh needed at all.
+        // This also fixes Twilio tenants, which have no ghl_api_key column of their own.
+        const { data: pitSiblings } = await supabase
+            .from('tenants')
+            .select('ghl_api_key')
+            .eq('ghl_location_id', tenant.ghl_location_id)
+            .like('ghl_api_key', 'pit-%')
+            .limit(1);
+
+        if (pitSiblings && pitSiblings.length > 0) {
+            console.log(`[OAuth] PIT key found in Android sibling for location ${tenant.ghl_location_id}. Using it directly.`);
+            return pitSiblings[0].ghl_api_key;
+        }
+
+        // ── Step 2: OAuth Token Sibling Search ───────────────────────────────
+        // No PIT found — try to inherit OAuth tokens from a sibling tenant row.
         let siblingToken = null;
 
         // Try Android table first
@@ -29,7 +47,7 @@ async function getValidAccessToken(tenant) {
             .limit(1);
         if (sibling1 && sibling1.length > 0) siblingToken = sibling1[0];
 
-        // Try Twilio table if not found
+        // Try Twilio table if not found in Android
         if (!siblingToken) {
             const { data: sibling2 } = await supabase
                 .from('twilio_tenants')
@@ -41,19 +59,19 @@ async function getValidAccessToken(tenant) {
         }
             
         if (siblingToken && siblingToken.ghl_refresh_token) {
-            console.log(`[OAuth] Sibling tokens found! Inheriting...`);
+            console.log(`[OAuth] Sibling OAuth tokens found! Inheriting...`);
             tenant.ghl_access_token = siblingToken.ghl_access_token;
             tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
             tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
             
-            // Save them to THIS row permanently
+            // Save them to THIS row permanently so we don't repeat this lookup
             await supabase.from(tableName).update({
                 ghl_access_token: siblingToken.ghl_access_token,
                 ghl_refresh_token: siblingToken.ghl_refresh_token,
                 ghl_token_expires_at: siblingToken.ghl_token_expires_at
             }).eq('id', tenant.id);
         } else {
-            throw new Error(`Location ${tenant.ghl_location_id} has not completed OAuth authorization! No sibling tokens found either.`);
+            throw new Error(`Location ${tenant.ghl_location_id} has no PIT key and no valid OAuth tokens. Go to Admin → Connect GHL to authorize.`);
         }
     }
 
