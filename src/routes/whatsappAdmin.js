@@ -1,16 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const whatsappDB = require('../db/whatsappQueries');
-const config = require('../config');
+const { requireAdmin } = require('../middleware/auth');
 
-// Middleware to protect admin routes
-router.use((req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== `Bearer ${config.ADMIN_API_KEY}`) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
-    next();
-});
+// Protect all routes with the shared admin middleware (uses x-admin-key header)
+router.use(requireAdmin);
 
 router.get('/tenants', async (req, res) => {
     try {

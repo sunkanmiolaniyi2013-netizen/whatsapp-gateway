@@ -400,7 +400,7 @@
     async function authFetch(url, options = {}) {
         options.headers = {
             ...options.headers,
-            'Authorization': 'Bearer ' + ADMIN_KEY,
+            'x-admin-key': ADMIN_KEY,
             'Content-Type': 'application/json'
         };
         const res = await fetch(url, options);
