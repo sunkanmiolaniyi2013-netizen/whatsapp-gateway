@@ -389,11 +389,14 @@
 
 <script>
     const API_BASE = '/api/whatsapp-admin';
-    const ADMIN_KEY = localStorage.getItem('adminKey') || promptForKey();
+    let ADMIN_KEY = localStorage.getItem('adminKey') || '';
 
     function promptForKey() {
-        const key = prompt('Enter Admin API Key:');
-        if (key) localStorage.setItem('adminKey', key);
+        const key = prompt('Enter your Admin API Key (set as ADMIN_API_KEY in Railway Variables):');
+        if (key) {
+            localStorage.setItem('adminKey', key);
+            ADMIN_KEY = key;
+        }
         return key;
     }
 
@@ -404,6 +407,27 @@
             'Content-Type': 'application/json'
         };
         const res = await fetch(url, options);
+
+        // If unauthorized, clear the bad key and re-prompt automatically
+        if (res.status === 401) {
+            localStorage.removeItem('adminKey');
+            ADMIN_KEY = '';
+            const newKey = prompt('❌ Wrong Admin API Key. Enter the correct ADMIN_API_KEY from your Railway Variables:');
+            if (newKey) {
+                localStorage.setItem('adminKey', newKey);
+                ADMIN_KEY = newKey;
+                // Retry the request with the new key
+                options.headers['x-admin-key'] = newKey;
+                const retry = await fetch(url, options);
+                if (!retry.ok) {
+                    const err = await retry.json().catch(() => ({ error: retry.statusText }));
+                    throw new Error(err.error || retry.statusText);
+                }
+                return retry.json();
+            }
+            throw new Error('No admin key provided');
+        }
+
         if (!res.ok) {
             const err = await res.json().catch(() => ({ error: res.statusText }));
             throw new Error(err.error || res.statusText);
