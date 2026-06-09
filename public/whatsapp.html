@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Gateway — Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0d0f14;
+            --surface: #13161d;
+            --surface2: #1a1e28;
+            --border: #252a38;
+            --accent: #25d366;   /* WhatsApp green */
+            --accent2: #6df09b;
+            --text: #e8eaf0;
+            --muted: #6b7280;
+            --green: #10b981;
+            --yellow: #f59e0b;
+            --red: #ef4444;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        header {
+            background: linear-gradient(135deg, #051a0c 0%, #0d0f14 60%);
+            border-bottom: 1px solid var(--border);
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        .logo { display: flex; align-items: center; gap: 12px; }
+        .logo-icon {
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+        }
+        .logo h1 { font-size: 18px; font-weight: 600; }
+        .logo span { font-size: 12px; color: var(--muted); display: block; margin-top: 2px; }
+        .header-nav { display: flex; gap: 12px; align-items: center; }
+        .nav-link {
+            color: var(--muted); font-size: 13px; text-decoration: none;
+            padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+        .nav-link:hover { color: var(--text); border-color: var(--accent); }
+
+        /* ── Main ── */
+        main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+        .page-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+        .page-subtitle { color: var(--muted); font-size: 14px; margin-bottom: 32px; }
+
+        /* ── Info cards ── */
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .info-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+        .info-card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+        .info-card .val { font-family: monospace; font-size: 13px; color: var(--accent2); word-break: break-all; }
+        .info-card .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+        /* ── Panel ── */
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .panel-title { font-size: 15px; font-weight: 600; }
+
+        /* ── Form ── */
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group.full { grid-column: 1 / -1; }
+        label { font-size: 12px; color: var(--muted); font-weight: 500; }
+        input, select {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            padding: 10px 14px;
+            transition: border-color .2s;
+            outline: none;
+        }
+        input:focus, select:focus { border-color: var(--accent); }
+        .form-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 18px; border-radius: 8px; border: none;
+            font-family: inherit; font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all .2s;
+        }
+        .btn-primary { background: var(--accent); color: #000; }
+        .btn-primary:hover { background: #1da851; }
+        .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-danger { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 5px 12px; font-size: 12px; }
+        .btn-danger:hover { background: #ef4444; color: #fff; }
+        .btn-qr { background: #075e54; color: #fff; }
+        .btn-qr:hover { background: #064d45; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px 14px; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--border); }
+        td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,.02); }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+        }
+        .badge-active { background: rgba(16,185,129,.15); color: var(--green); }
+        .badge-inactive { background: rgba(107,114,128,.15); color: var(--muted); }
+
+        /* ── QR Modal ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            z-index: 1000; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 440px;
+            width: 90%;
+            text-align: center;
+            animation: popIn 0.25s ease;
+        }
+        @keyframes popIn { from{transform:scale(0.9);opacity:0} to{transform:scale(1);opacity:1} }
+        .modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+        .modal p { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+        .qr-box {
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        .qr-box img { display: block; width: 220px; height: 220px; }
+        .qr-status {
+            font-size: 13px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+        .qr-status.waiting { background: rgba(245,158,11,.1); color: var(--yellow); }
+        .qr-status.connected { background: rgba(16,185,129,.1); color: var(--green); }
+        .qr-status.loading { background: rgba(107,114,128,.1); color: var(--muted); }
+
+        /* ── Wizard ── */
+        .wizard {
+            background: linear-gradient(135deg, rgba(37,211,102,.08) 0%, rgba(13,15,20,0) 60%);
+            border: 1px solid rgba(37,211,102,.25);
+            border-radius: var(--radius);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .wizard-title { font-size: 16px; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+        .wizard-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+        .wizard-steps { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .step-badge {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 20px; padding: 4px 14px;
+            font-size: 12px; font-weight: 600; color: var(--muted);
+        }
+        .step-badge.active { border-color: var(--accent); color: var(--accent); }
+        .step-badge.done { background: rgba(37,211,102,.15); border-color: var(--accent); color: var(--accent); }
+
+        /* ── Status bar ── */
+        #statusBar {
+            position: fixed; bottom: 24px; right: 24px;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 18px;
+            font-size: 13px; display: none; z-index: 9999;
+            box-shadow: 0 4px 20px rgba(0,0,0,.4);
+        }
+        #statusBar.show { display: block; animation: fadeIn .2s; }
+        #statusBar.ok { border-color: var(--green); color: var(--green); }
+        #statusBar.err { border-color: #ef4444; color: #ef4444; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+        .empty { color: var(--muted); font-size: 13px; padding: 32px; text-align: center; }
+        .pulse { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+        .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="logo-icon">💬</div>
+        <div>
+            <h1>WhatsApp Gateway</h1>
+            <span>Evolution API Bridge Management</span>
+        </div>
+    </div>
+    <div class="header-nav">
+        <a href="/" class="nav-link">← Android Gateway</a>
+        <a href="/twilio.html" class="nav-link">📞 Twilio</a>
+    </div>
+</header>
+
+<main>
+    <div class="page-title">WhatsApp Tenant Dashboard</div>
+    <div class="page-subtitle">Connect physical WhatsApp numbers to GoHighLevel sub-accounts via Evolution API.</div>
+
+    <!-- Info Cards -->
+    <div class="info-grid">
+        <div class="info-card">
+            <h3>Inbound Webhook URL (set in Evolution API)</h3>
+            <div class="val" id="inboundUrl">Loading...</div>
+            <div class="hint">Point your Evolution API instance webhook here to receive replies</div>
+        </div>
+        <div class="info-card">
+            <h3>GHL Custom Provider URL</h3>
+            <div class="val" id="providerUrl">Loading...</div>
+            <div class="hint">Set this as the GHL Custom Provider send URL (use channel: whatsapp)</div>
+        </div>
+    </div>
+
+    <!-- Step-by-Step Wizard -->
+    <div class="wizard">
+        <div class="wizard-title">🚀 Quick Setup Wizard</div>
+        <div class="wizard-sub">Set up a new WhatsApp number in 3 steps — no Postman or terminal needed.</div>
+        <div class="wizard-steps">
+            <div class="step-badge active" id="stepBadge1">1 · Evolution Server Details</div>
+            <div class="step-badge" id="stepBadge2">2 · Get QR Code & Scan</div>
+            <div class="step-badge" id="stepBadge3">3 · Link to GHL Location</div>
+        </div>
+
+        <!-- Step 1: Evolution Server Details -->
+        <div id="step1">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="evo_url">Evolution API Base URL</label>
+                    <input type="text" id="evo_url" placeholder="e.g. https://evolution.myserver.com">
+                </div>
+                <div class="form-group">
+                    <label for="evo_key">Evolution API Key (Global)</label>
+                    <input type="password" id="evo_key" placeholder="Your Evolution API key" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="instance_name">Instance Name</label>
+                    <input type="text" id="instance_name" placeholder="e.g. business-1-wa">
+                </div>
+                <div class="form-group" style="align-self:end">
+                    <button class="btn btn-primary" onclick="createInstance()" id="createBtn">
+                        ➡️ Create Instance & Get QR Code
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: QR Code (hidden until instance created) -->
+        <div id="step2" style="display:none;">
+            <hr class="divider">
+            <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">
+                📱 Open WhatsApp on your phone → <strong>Linked Devices</strong> → <strong>Link a Device</strong> → Scan the QR code below.
+            </p>
+            <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+                <div>
+                    <div class="qr-box">
+                        <img id="qrImage" src="" alt="QR Code">
+                    </div>
+                    <div class="qr-status waiting" id="qrStatus">⏳ Waiting for scan...</div>
+                    <button class="btn btn-secondary" onclick="refreshQR()" style="font-size:12px;">🔄 Refresh QR</button>
+                </div>
+                <div style="flex:1; min-width:220px;">
+                    <div style="background:var(--surface2); border-radius:10px; padding:16px; border:1px solid var(--border);">
+                        <div style="font-size:12px; font-weight:600; color:var(--accent); margin-bottom:10px;">SCANNING TIPS</div>
+                        <ul style="font-size:12px; color:var(--muted); line-height:2; padding-left:16px;">
+                            <li>Only scan once — don't rescan unless you get an error.</li>
+                            <li>QR code expires in 60 seconds. Click Refresh if expired.</li>
+                            <li>The page auto-detects when you scan successfully.</li>
+                            <li>Once connected you'll see a ✅ green status above.</li>
+                        </ul>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button class="btn btn-primary" id="continueBtn" onclick="goToStep3()" style="display:none">
+                            ✅ Connected! Continue to Step 3 →
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Link to GHL (hidden until QR scanned) -->
+        <div id="step3" style="display:none;">
+            <hr class="divider">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="wa_business_name">Business / Client Name</label>
+                    <input type="text" id="wa_business_name" placeholder="e.g. Acme Corp">
+                </div>
+                <div class="form-group">
+                    <label for="wa_ghl_location_id">GHL Location ID</label>
+                    <input type="text" id="wa_ghl_location_id" placeholder="e.g. m2G2bfb79Bnj3ArHvLCq">
+                </div>
+                <div class="form-group">
+                    <label for="wa_phone_number">WhatsApp Phone Number (your SIM)</label>
+                    <input type="text" id="wa_phone_number" placeholder="e.g. +447911123456">
+                </div>
+                <div class="form-group">
+                    <label for="wa_ghl_api_key">GHL PIT Key <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+                    <input type="text" id="wa_ghl_api_key" placeholder="pit-xxxxxxxx..." autocomplete="off">
+                </div>
+                <div class="form-group full">
+                    <button class="btn btn-primary" onclick="registerTenant()" id="registerBtn">
+                        💾 Save & Activate WhatsApp Number
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- All Registered Numbers -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="panel-title">📋 Registered WhatsApp Numbers</div>
+            <button class="btn btn-secondary" onclick="loadTenants()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Business</th>
+                        <th>WhatsApp Number</th>
+                        <th>GHL Location ID</th>
+                        <th>Evolution Instance</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tenantTableBody">
+                    <tr><td colspan="6" class="empty">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- QR Modal (for viewing QR of existing tenants) -->
+<div class="modal-overlay" id="qrModal">
+    <div class="modal">
+        <h2>📱 Scan QR Code</h2>
+        <p>Open WhatsApp → Linked Devices → Link a Device → Scan</p>
+        <div class="qr-box">
+            <img id="modalQrImage" src="" alt="QR Code" style="width:220px;height:220px;">
+        </div>
+        <div class="qr-status loading pulse" id="modalQrStatus">Loading QR...</div>
+        <button class="btn btn-secondary" onclick="closeModal()" style="margin-top:8px">Close</button>
+    </div>
+</div>
+
+<div id="statusBar"></div>
+
+<script>
+    const API_BASE = '/api/whatsapp-admin';
+    const ADMIN_KEY = localStorage.getItem('adminKey') || promptForKey();
+
+    function promptForKey() {
+        const key = prompt('Enter Admin API Key:');
+        if (key) localStorage.setItem('adminKey', key);
+        return key;
+    }
+
+    async function authFetch(url, options = {}) {
+        options.headers = {
+            ...options.headers,
+            'Authorization': 'Bearer ' + ADMIN_KEY,
+            'Content-Type': 'application/json'
+        };
+        const res = await fetch(url, options);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(err.error || res.statusText);
+        }
+        return res.json();
+    }
+
+    function showStatus(msg, ok = true) {
+        const bar = document.getElementById('statusBar');
+        bar.textContent = msg;
+        bar.className = 'show ' + (ok ? 'ok' : 'err');
+        clearTimeout(bar._t);
+        bar._t = setTimeout(() => bar.classList.remove('show'), 3500);
+    }
+
+    // Fill dynamic URLs
+    const base = window.location.origin;
+    document.getElementById('inboundUrl').textContent = base + '/whatsapp/webhooks/inbound';
+    document.getElementById('providerUrl').textContent = base + '/provider/send-message';
+
+    // ── Wizard State ─────────────────────────────────────────────────────────
+    let currentInstanceName = '';
+    let currentEvoUrl = '';
+    let currentEvoKey = '';
+    let qrPollInterval = null;
+
+    function setStep(n) {
+        [1,2,3].forEach(i => {
+            document.getElementById('stepBadge' + i).className = 'step-badge' + (i < n ? ' done' : i === n ? ' active' : '');
+        });
+    }
+
+    // Step 1: Create instance on Evolution API
+    async function createInstance() {
+        const evo_url = document.getElementById('evo_url').value.trim().replace(/\/$/, '');
+        const evo_key = document.getElementById('evo_key').value.trim();
+        const instance_name = document.getElementById('instance_name').value.trim();
+
+        if (!evo_url || !evo_key || !instance_name) {
+            return showStatus('Please fill in all fields in Step 1', false);
+        }
+
+        currentEvoUrl = evo_url;
+        currentEvoKey = evo_key;
+        currentInstanceName = instance_name;
+
+        const btn = document.getElementById('createBtn');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+
+        try {
+            // 1. Create the instance
+            const createRes = await fetch(`${evo_url}/instance/create`, {
+                method: 'POST',
+                headers: { 'apikey': evo_key, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instanceName: instance_name, qrcode: true })
+            });
+            const createData = await createRes.json();
+            if (!createRes.ok) throw new Error(createData.message || 'Failed to create instance');
+
+            // 2. Set the webhook so replies come back to us
+            const webhookUrl = base + '/whatsapp/webhooks/inbound';
+            await fetch(`${evo_url}/webhook/set/${instance_name}`, {
+                method: 'POST',
+                headers: { 'apikey': evo_key, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: webhookUrl,
+                    enabled: true,
+                    events: ['MESSAGES_UPSERT']
+                })
+            });
+
+            // 3. Show QR step
+            setStep(2);
+            document.getElementById('step2').style.display = 'block';
+            document.getElementById('stepBadge2').classList.add('active');
+            await loadQR();
+            startPolling();
+
+            showStatus('✅ Instance created! Scan the QR code.');
+        } catch (e) {
+            showStatus('Error: ' + e.message, false);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '➡️ Create Instance & Get QR Code';
+        }
+    }
+
+    async function loadQR() {
+        try {
+            const res = await fetch(`${currentEvoUrl}/instance/connect/${currentInstanceName}`, {
+                headers: { 'apikey': currentEvoKey }
+            });
+            const data = await res.json();
+            const qrBase64 = data.qrcode?.base64 || data.base64;
+            if (qrBase64) {
+                document.getElementById('qrImage').src = qrBase64;
+                document.getElementById('qrStatus').textContent = '⏳ Waiting for scan...';
+                document.getElementById('qrStatus').className = 'qr-status waiting';
+            }
+        } catch(e) {
+            console.error('QR load error:', e);
+        }
+    }
+
+    function refreshQR() {
+        document.getElementById('qrStatus').textContent = '🔄 Refreshing...';
+        loadQR();
+    }
+
+    function startPolling() {
+        if (qrPollInterval) clearInterval(qrPollInterval);
+        qrPollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`${currentEvoUrl}/instance/fetchInstances`, {
+                    headers: { 'apikey': currentEvoKey }
+                });
+                const instances = await res.json();
+                const instance = instances.find(i => i.instance?.instanceName === currentInstanceName);
+                if (instance?.instance?.state === 'open') {
+                    clearInterval(qrPollInterval);
+                    document.getElementById('qrStatus').textContent = '✅ WhatsApp Connected!';
+                    document.getElementById('qrStatus').className = 'qr-status connected';
+                    document.getElementById('continueBtn').style.display = 'inline-flex';
+                    setStep(2); // keep 2 as done to trigger the badge
+                    document.getElementById('stepBadge2').className = 'step-badge done';
+                    showStatus('✅ WhatsApp connected! Now fill in Step 3.', true);
+                }
+            } catch(e) { /* silent */ }
+        }, 5000);
+    }
+
+    function goToStep3() {
+        setStep(3);
+        document.getElementById('step3').style.display = 'block';
+        // Pre-fill the instance details
+        document.getElementById('step3').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // Step 3: Register tenant in our middleware DB
+    async function registerTenant() {
+        const payload = {
+            business_name: document.getElementById('wa_business_name').value.trim(),
+            ghl_location_id: document.getElementById('wa_ghl_location_id').value.trim(),
+            whatsapp_phone_number: document.getElementById('wa_phone_number').value.trim(),
+            whatsapp_instance_id: currentInstanceName,
+            whatsapp_api_key: currentEvoKey,
+            whatsapp_base_url: currentEvoUrl,
+            ghl_api_key: document.getElementById('wa_ghl_api_key').value.trim() || null
+        };
+
+        if (!payload.business_name || !payload.ghl_location_id || !payload.whatsapp_phone_number) {
+            return showStatus('Please fill all required fields in Step 3', false);
+        }
+
+        const btn = document.getElementById('registerBtn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+            await authFetch(API_BASE + '/register', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            showStatus('🎉 WhatsApp number activated!', true);
+            setStep(3);
+            document.getElementById('stepBadge3').className = 'step-badge done';
+            loadTenants();
+
+            // Reset wizard after 2s
+            setTimeout(() => {
+                ['step2','step3'].forEach(id => document.getElementById(id).style.display = 'none');
+                document.getElementById('instance_name').value = '';
+                setStep(1);
+                currentInstanceName = '';
+            }, 2000);
+        } catch(e) {
+            showStatus('Error: ' + e.message, false);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '💾 Save & Activate WhatsApp Number';
+        }
+    }
+
+    // ── Tenants Table ─────────────────────────────────────────────────────────
+    async function loadTenants() {
+        try {
+            const tenants = await authFetch(API_BASE + '/tenants');
+            const tbody = document.getElementById('tenantTableBody');
+            if (!tenants.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty">No WhatsApp numbers added yet. Use the wizard above!</td></tr>';
+                return;
+            }
+            tbody.innerHTML = tenants.map(t => `
+                <tr>
+                    <td>${t.business_name}</td>
+                    <td style="font-family:monospace;color:var(--accent2)">${t.whatsapp_phone_number}</td>
+                    <td style="font-family:monospace;font-size:12px;color:var(--muted)">${t.ghl_location_id}</td>
+                    <td style="font-family:monospace;font-size:12px;color:var(--yellow)">${t.whatsapp_instance_id}</td>
+                    <td><span class="badge ${t.is_active ? 'badge-active' : 'badge-inactive'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td style="display:flex;gap:8px;align-items:center">
+                        <button class="btn btn-qr" style="font-size:12px;padding:5px 12px" onclick="showQrForTenant('${t.whatsapp_instance_id}','${t.whatsapp_base_url}','${t.whatsapp_api_key}')">📱 QR</button>
+                    </td>
+                </tr>
+            `).join('');
+        } catch (e) {
+            showStatus('Failed to load: ' + e.message, false);
+        }
+    }
+
+    // Show QR code for an existing tenant (e.g. if they need to re-link)
+    async function showQrForTenant(instanceId, baseUrl, apiKey) {
+        document.getElementById('qrModal').classList.add('show');
+        document.getElementById('modalQrStatus').textContent = 'Loading QR code...';
+        document.getElementById('modalQrStatus').className = 'qr-status loading pulse';
+        document.getElementById('modalQrImage').src = '';
+
+        try {
+            const res = await fetch(`${baseUrl}/instance/connect/${instanceId}`, {
+                headers: { 'apikey': apiKey }
+            });
+            const data = await res.json();
+            const qrBase64 = data.qrcode?.base64 || data.base64;
+            if (qrBase64) {
+                document.getElementById('modalQrImage').src = qrBase64;
+                document.getElementById('modalQrStatus').textContent = '⏳ Waiting for scan...';
+                document.getElementById('modalQrStatus').className = 'qr-status waiting';
+            } else {
+                document.getElementById('modalQrStatus').textContent = '✅ Already connected!';
+                document.getElementById('modalQrStatus').className = 'qr-status connected';
+            }
+        } catch(e) {
+            document.getElementById('modalQrStatus').textContent = 'Error: ' + e.message;
+            document.getElementById('modalQrStatus').className = 'qr-status waiting';
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('qrModal').classList.remove('show');
+    }
+
+    loadTenants();
+</script>
+</body>
+</html>
