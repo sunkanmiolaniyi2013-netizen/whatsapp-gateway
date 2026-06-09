@@ -36,6 +36,25 @@ router.post('/send-message', async (req, res) => {
 
         const port = config.PORT || process.env.PORT || 3000;
 
+        // ── TIER 0: Explicit WhatsApp Routing ────────────────────────────────
+        // If GHL specifies the channel as 'whatsapp', bypass SMS tiers completely
+        // and send directly to the WhatsApp routes.
+        if (payload.channel === 'whatsapp') {
+            console.log(`[Provider] TIER 0 — Explicit WhatsApp channel requested. Routing to WhatsApp.`);
+            try {
+                const response = await axios.post(
+                    `http://localhost:${port}/whatsapp/provider/send-message`,
+                    req.body
+                );
+                return res.status(response.status).json(response.data);
+            } catch (waErr) {
+                console.error('[Provider] WhatsApp routing error:', waErr.response?.data || waErr.message);
+                return res.status(waErr.response?.status || 500).json(
+                    waErr.response?.data || { success: false, error: waErr.message }
+                );
+            }
+        }
+
         // ── TIER 1: Twilio-Primary Countries ─────────────────────────────────
         // Destination is US (+1) or any other country we've designated as
         // Twilio-primary → send straight to Twilio.

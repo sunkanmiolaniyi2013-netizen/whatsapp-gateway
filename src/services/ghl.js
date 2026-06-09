@@ -17,7 +17,9 @@ async function getValidAccessToken(tenant) {
     }
 
     // Determine which table this tenant lives in so we can save refreshed tokens back
-    const tableName = tenant.gateway_device_id !== undefined ? 'tenants' : 'twilio_tenants';
+    let tableName = 'twilio_tenants';
+    if (tenant.gateway_device_id !== undefined) tableName = 'tenants';
+    else if (tenant.whatsapp_instance_id !== undefined) tableName = 'whatsapp_tenants';
 
     // ── Sibling Token Lookup ─────────────────────────────────────────────────
     // If this specific row has no refresh token yet, look for one from a sibling
@@ -63,6 +65,17 @@ async function getValidAccessToken(tenant) {
                 .not('ghl_refresh_token', 'is', null)
                 .limit(1);
             if (sibling2 && sibling2.length > 0) siblingToken = sibling2[0];
+        }
+
+        // Check WhatsApp tenants if not found in Twilio
+        if (!siblingToken) {
+            const { data: sibling3 } = await supabase
+                .from('whatsapp_tenants')
+                .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+                .eq('ghl_location_id', tenant.ghl_location_id)
+                .not('ghl_refresh_token', 'is', null)
+                .limit(1);
+            if (sibling3 && sibling3.length > 0) siblingToken = sibling3[0];
         }
 
         if (siblingToken && siblingToken.ghl_refresh_token) {
@@ -122,10 +135,10 @@ async function getValidAccessToken(tenant) {
 }
 
 /**
- * Pushes an inbound SMS reply into GoHighLevel's conversation inbox
- * Used for routing Android Gateway texts back into GHL's UI natively
+ * Pushes an inbound message reply into GoHighLevel's conversation inbox
+ * Used for routing Android Gateway texts or WhatsApp back into GHL's UI natively
  */
-async function pushInboundMessageToGHL(tenant, fromNumber, body) {
+async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS') {
     try {
         const token = await getValidAccessToken(tenant);
         let contactId = null;
@@ -150,8 +163,8 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body) {
         }
 
         const payload = {
-            type: 'SMS',
-            to: tenant.phone_number,
+            type: channelType,
+            to: tenant.phone_number || tenant.whatsapp_phone_number,
             from: fromNumber,
             message: body
         };

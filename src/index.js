@@ -20,6 +20,9 @@ const providerRoutes = require('./routes/provider');
 // Twilio (additive — zero impact on existing routes)
 const twilioRoutes = require('./routes/twilioRoutes');
 const twilioAdminRoutes = require('./routes/twilioAdmin');
+// WhatsApp Bridge
+const whatsappRoutes = require('./routes/whatsappRoutes');
+const whatsappAdminRoutes = require('./routes/whatsappAdmin');
 
 // Register routes
 app.use('/webhooks', webhooksRoutes);
@@ -29,6 +32,9 @@ app.use('/provider', providerRoutes);
 // Twilio routes (new — additive only)
 app.use('/twilio', twilioRoutes);
 app.use('/api/twilio-admin', twilioAdminRoutes);
+// WhatsApp routes
+app.use('/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp-admin', whatsappAdminRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
