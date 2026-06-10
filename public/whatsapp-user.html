@@ -280,7 +280,11 @@
 
     // Run automatically on load
     if (!locationId) {
-        showError("Invalid access: Missing location_id. Please open this link directly inside GoHighLevel.");
+        let allParams = [];
+        urlParams.forEach((value, key) => allParams.push(key + "=" + value));
+        let paramsString = allParams.length > 0 ? "?" + allParams.join("&") : "No parameters found in URL.";
+        
+        showError("Invalid access: Missing location_id. Parameters received: " + paramsString);
         elements.actionBtn.style.display = 'none';
         elements.loader.style.display = 'none';
         elements.statusText.style.display = 'none';
