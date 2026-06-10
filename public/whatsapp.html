@@ -387,17 +387,39 @@
 
 <div id="statusBar"></div>
 
+<!-- Admin Key Entry Panel (shown when key is missing or wrong) -->
+<div id="keyOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(6px); z-index:9999; align-items:center; justify-content:center;">
+    <div style="background:#13161d; border:1px solid #252a38; border-radius:16px; padding:36px; max-width:420px; width:90%; text-align:center;">
+        <div style="font-size:36px; margin-bottom:16px;">🔐</div>
+        <h2 style="font-size:18px; font-weight:700; margin-bottom:8px; color:#e8eaf0;">Admin API Key Required</h2>
+        <p id="keyOverlayMsg" style="font-size:13px; color:#6b7280; margin-bottom:20px;">Enter the <code style="background:#1a1e28;padding:2px 6px;border-radius:4px;color:#6df09b">ADMIN_API_KEY</code> from your Railway project Variables.</p>
+        <input type="password" id="keyInput" placeholder="Enter your admin key..." autocomplete="off"
+            style="width:100%;background:#1a1e28;border:1px solid #252a38;border-radius:8px;color:#e8eaf0;font-family:inherit;font-size:14px;padding:12px 16px;outline:none;margin-bottom:12px;"
+            onkeydown="if(event.key==='Enter') submitKey()">
+        <button onclick="submitKey()" style="width:100%;background:#25d366;color:#000;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;">
+            Unlock Dashboard
+        </button>
+    </div>
+</div>
+
 <script>
     const API_BASE = '/api/whatsapp-admin';
     let ADMIN_KEY = localStorage.getItem('adminKey') || '';
 
-    function promptForKey() {
-        const key = prompt('Enter your Admin API Key (set as ADMIN_API_KEY in Railway Variables):');
-        if (key) {
-            localStorage.setItem('adminKey', key);
-            ADMIN_KEY = key;
-        }
-        return key;
+    function showKeyOverlay(msg) {
+        document.getElementById('keyOverlay').style.display = 'flex';
+        if (msg) document.getElementById('keyOverlayMsg').textContent = msg;
+        setTimeout(() => document.getElementById('keyInput').focus(), 100);
+    }
+
+    function submitKey() {
+        const key = document.getElementById('keyInput').value.trim();
+        if (!key) return;
+        localStorage.setItem('adminKey', key);
+        ADMIN_KEY = key;
+        document.getElementById('keyOverlay').style.display = 'none';
+        document.getElementById('keyInput').value = '';
+        loadTenants();
     }
 
     async function authFetch(url, options = {}) {
@@ -408,24 +430,12 @@
         };
         const res = await fetch(url, options);
 
-        // If unauthorized, clear the bad key and re-prompt automatically
+        // If unauthorized, show the key overlay UI instead of a blocked browser prompt
         if (res.status === 401) {
             localStorage.removeItem('adminKey');
             ADMIN_KEY = '';
-            const newKey = prompt('❌ Wrong Admin API Key. Enter the correct ADMIN_API_KEY from your Railway Variables:');
-            if (newKey) {
-                localStorage.setItem('adminKey', newKey);
-                ADMIN_KEY = newKey;
-                // Retry the request with the new key
-                options.headers['x-admin-key'] = newKey;
-                const retry = await fetch(url, options);
-                if (!retry.ok) {
-                    const err = await retry.json().catch(() => ({ error: retry.statusText }));
-                    throw new Error(err.error || retry.statusText);
-                }
-                return retry.json();
-            }
-            throw new Error('No admin key provided');
+            showKeyOverlay('❌ Wrong key. Enter the correct ADMIN_API_KEY from your Railway Variables:');
+            throw new Error('Invalid admin key — please re-enter');
         }
 
         if (!res.ok) {
@@ -661,7 +671,12 @@
         document.getElementById('qrModal').classList.remove('show');
     }
 
-    loadTenants();
+    // Show key overlay on load if no key saved, otherwise try loading
+    if (!ADMIN_KEY) {
+        showKeyOverlay();
+    } else {
+        loadTenants();
+    }
 </script>
 </body>
 </html>
