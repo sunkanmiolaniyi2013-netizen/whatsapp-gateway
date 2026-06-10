@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Gateway Setup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #ffffff;
+            --surface: #f9fafb;
+            --border: #e5e7eb;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --accent: #25d366;
+            --accent-hover: #1ea952;
+            --radius: 16px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 480px;
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            padding: 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Decorative top accent */
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 6px;
+            background: linear-gradient(90deg, #25d366, #128c7e);
+        }
+
+        .icon-wrapper {
+            width: 64px;
+            height: 64px;
+            background: rgba(37, 211, 102, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+
+        .icon-wrapper svg {
+            width: 32px;
+            height: 32px;
+            fill: var(--accent);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        p {
+            font-size: 15px;
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .qr-box {
+            background: var(--surface);
+            border: 1px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 24px;
+            min-height: 260px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .qr-box img {
+            width: 220px;
+            height: 220px;
+            border-radius: 8px;
+            display: none;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            animation: fadeIn 0.4s ease;
+        }
+
+        .loader {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(37, 211, 102, 0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        .status-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 14px 24px;
+            background: var(--accent);
+            color: white;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(37, 211, 102, 0.2);
+        }
+
+        .btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .instructions {
+            text-align: left;
+            background: var(--surface);
+            padding: 16px 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            margin-bottom: 24px;
+            display: none;
+        }
+
+        .instructions ol {
+            padding-left: 20px;
+            margin: 0;
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .instructions li strong {
+            color: var(--text-main);
+        }
+
+        .success-state {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(37, 211, 102, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+
+        .success-icon svg {
+            width: 40px;
+            height: 40px;
+            fill: var(--accent);
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 14px;
+            background: #fef2f2;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #fecaca;
+            margin-bottom: 24px;
+            display: none;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    </style>
+</head>
+<body>
+
+<div class="container" id="mainContainer">
+    <div id="setupState">
+        <div class="icon-wrapper">
+            <svg viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.1.824zm-3.423-14.416c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm.029 18.88c-1.161 0-2.305-.292-3.318-.844l-3.677.964.984-3.595c-.607-1.052-.927-2.246-.926-3.468.001-3.825 3.113-6.937 6.937-6.937 1.856.001 3.598.723 4.907 2.034 1.31 1.311 2.031 3.054 2.03 4.908-.001 3.825-3.113 6.938-6.937 6.938z"/></svg>
+        </div>
+        
+        <h1>Connect WhatsApp</h1>
+        <p>Link your physical WhatsApp number directly to this GoHighLevel sub-account to send and receive messages natively.</p>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="instructions" id="instructions">
+            <ol>
+                <li>Open WhatsApp on your phone</li>
+                <li>Tap <strong>Menu</strong> or <strong>Settings</strong></li>
+                <li>Select <strong>Linked Devices</strong></li>
+                <li>Tap <strong>Link a Device</strong> and point your phone at the QR code</li>
+            </ol>
+        </div>
+
+        <div class="qr-box" id="qrBox">
+            <div class="loader" id="loader"></div>
+            <div class="status-text" id="statusText">Checking status...</div>
+            <img id="qrImage" src="" alt="WhatsApp QR Code">
+        </div>
+
+        <button class="btn" id="actionBtn" onclick="initializeConnection()">Generate Secure QR Code</button>
+    </div>
+
+    <div class="success-state" id="successState">
+        <div class="success-icon">
+            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        </div>
+        <h1>Successfully Connected!</h1>
+        <p>Your WhatsApp number is now fully integrated. You can close this window and start sending messages from the GoHighLevel Conversations tab.</p>
+        <div style="font-family: monospace; background: var(--surface); padding: 12px 20px; border-radius: 8px; color: var(--accent); font-weight: 600;" id="connectedPhone">
+            +1 (555) 000-0000
+        </div>
+    </div>
+</div>
+
+<script>
+    // Get location_id from GHL iframe URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const locationId = urlParams.get('location_id');
+
+    const elements = {
+        actionBtn: document.getElementById('actionBtn'),
+        qrBox: document.getElementById('qrBox'),
+        qrImage: document.getElementById('qrImage'),
+        loader: document.getElementById('loader'),
+        statusText: document.getElementById('statusText'),
+        instructions: document.getElementById('instructions'),
+        setupState: document.getElementById('setupState'),
+        successState: document.getElementById('successState'),
+        errorMessage: document.getElementById('errorMessage'),
+        connectedPhone: document.getElementById('connectedPhone')
+    };
+
+    let pollInterval = null;
+
+    // Run automatically on load
+    if (!locationId) {
+        showError("Invalid access: Missing location_id. Please open this link directly inside GoHighLevel.");
+        elements.actionBtn.style.display = 'none';
+        elements.loader.style.display = 'none';
+        elements.statusText.style.display = 'none';
+    } else {
+        checkCurrentStatus();
+    }
+
+    function showError(msg) {
+        elements.errorMessage.textContent = msg;
+        elements.errorMessage.style.display = 'block';
+        elements.loader.style.display = 'none';
+        elements.statusText.style.display = 'none';
+        elements.actionBtn.disabled = false;
+        elements.actionBtn.textContent = 'Try Again';
+    }
+
+    function showSuccess(phone) {
+        elements.setupState.style.display = 'none';
+        elements.successState.style.display = 'flex';
+        if (phone) elements.connectedPhone.textContent = phone;
+        if (pollInterval) clearInterval(pollInterval);
+    }
+
+    async function checkCurrentStatus() {
+        try {
+            const res = await fetch(`/whatsapp-setup/status?location_id=${locationId}`);
+            if (!res.ok) {
+                if (res.status === 404) {
+                    // No tenant exists yet, wait for user to click Generate
+                    elements.loader.style.display = 'none';
+                    elements.statusText.style.display = 'none';
+                    return;
+                }
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || "Failed to verify account permissions.");
+            }
+            
+            const data = await res.json();
+            
+            if (data.status === 'open') {
+                showSuccess(data.phone);
+            } else if (data.status === 'qr' && data.qr) {
+                displayQR(data.qr);
+                startPolling();
+            } else {
+                elements.loader.style.display = 'none';
+                elements.statusText.textContent = "Session inactive. Click Generate to restart.";
+                elements.actionBtn.textContent = 'Generate Secure QR Code';
+                elements.actionBtn.disabled = false;
+            }
+        } catch (err) {
+            showError(err.message);
+        }
+    }
+
+    async function initializeConnection() {
+        elements.errorMessage.style.display = 'none';
+        elements.actionBtn.disabled = true;
+        elements.actionBtn.textContent = 'Connecting securely...';
+        elements.loader.style.display = 'block';
+        elements.statusText.style.display = 'block';
+        elements.statusText.textContent = 'Initializing WhatsApp engine...';
+        elements.qrImage.style.display = 'none';
+        elements.instructions.style.display = 'none';
+
+        try {
+            const res = await fetch('/whatsapp-setup/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ location_id: locationId })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to initialize connection.");
+
+            if (data.status === 'open') {
+                showSuccess(data.phone);
+                return;
+            }
+
+            if (data.status === 'qr' && data.qr) {
+                displayQR(data.qr);
+                startPolling();
+            } else {
+                // Polling will catch the QR when ready
+                startPolling();
+            }
+
+        } catch (err) {
+            showError(err.message);
+        }
+    }
+
+    function displayQR(qrBase64) {
+        elements.loader.style.display = 'none';
+        elements.statusText.style.display = 'none';
+        elements.qrImage.src = qrBase64;
+        elements.qrImage.style.display = 'block';
+        elements.instructions.style.display = 'block';
+        elements.actionBtn.textContent = 'Refresh QR Code';
+        elements.actionBtn.disabled = false;
+        elements.actionBtn.style.background = 'var(--surface)';
+        elements.actionBtn.style.color = 'var(--text-main)';
+        elements.actionBtn.style.border = '1px solid var(--border)';
+    }
+
+    function startPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+        
+        pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/whatsapp-setup/status?location_id=${locationId}`);
+                if (!res.ok) return;
+                
+                const data = await res.json();
+                if (data.status === 'open') {
+                    showSuccess(data.phone);
+                } else if (data.status === 'qr' && data.qr && elements.qrImage.src !== data.qr) {
+                    displayQR(data.qr);
+                }
+            } catch (err) {
+                // Ignore silent poll errors
+            }
+        }, 3000);
+    }
+</script>
+</body>
+</html>

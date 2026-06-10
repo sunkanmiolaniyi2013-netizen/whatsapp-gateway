@@ -3,6 +3,7 @@ const axios = require('axios');
 const config = require('../config');
 const db = require('../db/queries');
 const twilioDB = require('../db/twilioQueries');
+const whatsappDB = require('../db/whatsappQueries');
 
 const router = express.Router();
 
@@ -31,6 +32,7 @@ router.get('/callback', async (req, res) => {
         // Ensure the location exists in either Android or Twilio DB
         const tenant = await db.getTenantByLocationId(locationId);
         const twilioTenants = await twilioDB.getTwilioTenantsByLocationId(locationId);
+        const whatsappTenants = await whatsappDB.getWhatsappTenantsByLocationId(locationId);
         
         let savedSuccessfully = false;
 
@@ -45,6 +47,32 @@ router.get('/callback', async (req, res) => {
         if (twilioTenants && twilioTenants.length > 0) {
             console.log(`[OAuth] Saving tokens for Twilio tenant at location ${locationId}`);
             await twilioDB.updateTwilioTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+            savedSuccessfully = true;
+        }
+
+        // 3. Save to WhatsApp (if configured)
+        if (whatsappTenants && whatsappTenants.length > 0) {
+            console.log(`[OAuth] Saving tokens for WhatsApp tenant at location ${locationId}`);
+            await whatsappDB.updateWhatsappTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+            savedSuccessfully = true;
+        }
+
+        // 4. Auto-provision WhatsApp Placeholder if no gateway is setup yet
+        // This prevents the "not registered" error for users who ONLY want WhatsApp
+        if (!savedSuccessfully) {
+            console.log(`[OAuth] No gateway found for ${locationId}. Auto-provisioning WhatsApp placeholder.`);
+            const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
+            await whatsappDB.addWhatsappTenant({
+                business_name: `Location ${locationId}`,
+                ghl_location_id: locationId,
+                whatsapp_phone_number: 'pending',
+                whatsapp_instance_id: `wa_${locationId.substring(0, 10)}_${Date.now()}`,
+                whatsapp_api_key: 'built-in',
+                whatsapp_base_url: 'built-in',
+                ghl_access_token: access_token,
+                ghl_refresh_token: refresh_token,
+                ghl_token_expires_at: expiresAt
+            });
             savedSuccessfully = true;
         }
 

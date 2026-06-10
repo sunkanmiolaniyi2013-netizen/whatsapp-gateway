@@ -55,13 +55,34 @@ router.post('/send-message', async (req, res) => {
             }
         }
 
+        // ── TIER 0.5: Smart WhatsApp Routing (Native GHL Tab) ───────────────
+        // If the user types in the native SMS tab, but the destination is not US
+        // AND they have an active WhatsApp setup, route it seamlessly via WhatsApp.
+        const isTwilioPrimary = TWILIO_PRIMARY_COUNTRIES.some(prefix => toNumber.startsWith(prefix));
+        
+        if (!isTwilioPrimary) {
+            const whatsappDB = require('../db/whatsappQueries');
+            const waTenants = await whatsappDB.getWhatsappTenantsByLocationId(locationId);
+            if (waTenants && waTenants.length > 0 && waTenants[0].is_active) {
+                console.log(`[Provider] Smart Routing: ${toNumber} is international. Sending via WhatsApp.`);
+                try {
+                    const response = await axios.post(
+                        `http://localhost:${port}/whatsapp/provider/send-message`,
+                        req.body
+                    );
+                    return res.status(response.status).json(response.data);
+                } catch (waErr) {
+                    console.error('[Provider] Smart WhatsApp routing error (falling back to SMS):', waErr.response?.data || waErr.message);
+                }
+            }
+        }
+
         // ── TIER 1: Twilio-Primary Countries ─────────────────────────────────
         // Destination is US (+1) or any other country we've designated as
         // Twilio-primary → send straight to Twilio.
         // determineTwilioNumber() inside twilioRoutes already handles picking
         // the correct Twilio number by country code (US number → US contact,
         // UK number → UK contact, etc.) plus sticky routing + load balancing.
-        const isTwilioPrimary = TWILIO_PRIMARY_COUNTRIES.some(prefix => toNumber.startsWith(prefix));
 
         if (isTwilioPrimary) {
             console.log(`[Provider] TIER 1 — ${toNumber} is a Twilio-primary country. Routing to Twilio.`);

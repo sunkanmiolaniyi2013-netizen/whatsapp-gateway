@@ -44,6 +44,16 @@ router.post('/register', async (req, res) => {
     }
 });
 
+router.delete('/tenant/:id', async (req, res) => {
+    try {
+        await whatsappDB.deleteWhatsappTenant(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting whatsapp tenant:', error);
+        res.status(500).json({ error: error.message || 'Server error' });
+    }
+});
+
 // ── Built-in WhatsApp Bridge (Baileys) ────────────────────────────────────────
 // No external Evolution API server required. Baileys handles everything in-process.
 

@@ -626,6 +626,7 @@
                     <td><span class="badge ${t.is_active ? 'badge-active' : 'badge-inactive'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td style="display:flex;gap:8px;align-items:center">
                         <button class="btn btn-qr" style="font-size:12px;padding:5px 12px" onclick="showQrForTenant('${t.whatsapp_instance_id}','${t.whatsapp_base_url}','${t.whatsapp_api_key}')">📱 QR</button>
+                        <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">🗑️ Delete</button>
                     </td>
                 </tr>
             `).join('');
@@ -663,6 +664,17 @@
 
     function closeModal() {
         document.getElementById('qrModal').classList.remove('show');
+    }
+
+    async function deleteTenant(id) {
+        if (!confirm('Are you sure you want to delete this WhatsApp number? This will disconnect it.')) return;
+        try {
+            await authFetch(API_BASE + '/tenant/' + id, { method: 'DELETE' });
+            showStatus('✅ WhatsApp number deleted', true);
+            loadTenants();
+        } catch (e) {
+            showStatus('Failed to delete: ' + e.message, false);
+        }
     }
 
     // Show key overlay on load if no key saved, otherwise try loading
