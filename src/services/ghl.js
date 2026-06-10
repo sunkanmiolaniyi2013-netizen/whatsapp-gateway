@@ -152,7 +152,7 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
         try {
             // Find the contact in GHL to get their ID (required for inbound V2 API)
             const searchRes = await axios.get(
-                `https://services.leadconnectorhq.com/contacts/?locationId=${tenant.ghl_location_id}&query=${encodeURIComponent(fromNumber)}`,
+                `https://services.leadconnectorhq.com/contacts/?locationId=${tenant.ghl_location_id}&query=${encodeURIComponent(from_number)}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -163,9 +163,32 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
             );
             if (searchRes.data?.contacts?.length > 0) {
                 contactId = searchRes.data.contacts[0].id;
+            } else {
+                console.log(`[GHL] Contact not found for ${from_number}. Creating new contact...`);
+                const createRes = await axios.post(
+                    `https://services.leadconnectorhq.com/contacts/`,
+                    {
+                        locationId: tenant.ghl_location_id,
+                        phone: from_number,
+                        firstName: 'WhatsApp',
+                        lastName: 'Lead'
+                    },
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Version': '2021-07-28',
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+                if (createRes.data?.contact?.id) {
+                    contactId = createRes.data.contact.id;
+                    console.log(`[GHL] Created contact: ${contactId}`);
+                }
             }
         } catch (e) {
-            console.error('Failed to look up contact ID:', e.message);
+            console.error('Failed to look up or create contact ID:', e?.response?.data || e.message);
         }
 
         const payload = {
