@@ -374,7 +374,35 @@
             <img id="modalQrImage" src="" alt="QR Code" style="width:220px;height:220px;">
         </div>
         <div class="qr-status loading pulse" id="modalQrStatus">Loading QR...</div>
-        <button class="btn btn-secondary" onclick="closeModal()" style="margin-top:8px">Close</button>
+        <button class="btn btn-secondary" onclick="closeModal('qrModal')" style="margin-top:8px">Close</button>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal" style="text-align: left;">
+        <h2 style="margin-bottom: 24px; text-align: center;">✏️ Edit WhatsApp Number</h2>
+        <input type="hidden" id="edit_tenant_id">
+        <div class="form-group" style="margin-bottom: 12px;">
+            <label for="edit_business_name">Business / Client Name</label>
+            <input type="text" id="edit_business_name">
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+            <label for="edit_phone_number">WhatsApp Phone Number</label>
+            <input type="text" id="edit_phone_number">
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+            <label for="edit_location_id">GHL Location ID</label>
+            <input type="text" id="edit_location_id">
+        </div>
+        <div class="form-group" style="margin-bottom: 24px;">
+            <label for="edit_ghl_api_key">GHL PIT Key (optional)</label>
+            <input type="text" id="edit_ghl_api_key">
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button class="btn btn-secondary" onclick="closeModal('editModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEdit()" id="saveEditBtn">Save Changes</button>
+        </div>
     </div>
 </div>
 
@@ -626,6 +654,7 @@
                     <td><span class="badge ${t.is_active ? 'badge-active' : 'badge-inactive'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td style="display:flex;gap:8px;align-items:center">
                         <button class="btn btn-qr" style="font-size:12px;padding:5px 12px" onclick="showQrForTenant('${t.whatsapp_instance_id}','${t.whatsapp_base_url}','${t.whatsapp_api_key}')">📱 QR</button>
+                        <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="editTenant('${t.id}', '${t.business_name.replace(/'/g, "\\'")}', '${t.whatsapp_phone_number}', '${t.ghl_location_id}', '${t.ghl_api_key || ''}')">✏️ Edit</button>
                         <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">🗑️ Delete</button>
                     </td>
                 </tr>
@@ -662,8 +691,50 @@
         }
     }
 
-    function closeModal() {
-        document.getElementById('qrModal').classList.remove('show');
+    function closeModal(id) {
+        document.getElementById(id || 'qrModal').classList.remove('show');
+    }
+
+    function editTenant(id, name, phone, locationId, apiKey) {
+        document.getElementById('edit_tenant_id').value = id;
+        document.getElementById('edit_business_name').value = name;
+        document.getElementById('edit_phone_number').value = phone;
+        document.getElementById('edit_location_id').value = locationId;
+        document.getElementById('edit_ghl_api_key').value = apiKey;
+        document.getElementById('editModal').classList.add('show');
+    }
+
+    async function saveEdit() {
+        const id = document.getElementById('edit_tenant_id').value;
+        const payload = {
+            business_name: document.getElementById('edit_business_name').value.trim(),
+            whatsapp_phone_number: document.getElementById('edit_phone_number').value.trim(),
+            ghl_location_id: document.getElementById('edit_location_id').value.trim(),
+            ghl_api_key: document.getElementById('edit_ghl_api_key').value.trim() || null
+        };
+
+        if (!payload.business_name || !payload.whatsapp_phone_number || !payload.ghl_location_id) {
+            return showStatus('Missing required fields', false);
+        }
+
+        const btn = document.getElementById('saveEditBtn');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+            await authFetch(API_BASE + '/tenant/' + id, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+            showStatus('✅ Saved successfully', true);
+            closeModal('editModal');
+            loadTenants();
+        } catch (e) {
+            showStatus('Failed to save: ' + e.message, false);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Save Changes';
+        }
     }
 
     async function deleteTenant(id) {

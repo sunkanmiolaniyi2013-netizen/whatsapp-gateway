@@ -54,6 +54,22 @@ router.delete('/tenant/:id', async (req, res) => {
     }
 });
 
+router.put('/tenant/:id', async (req, res) => {
+    try {
+        const { business_name, ghl_location_id, whatsapp_phone_number, ghl_api_key } = req.body;
+        const updated = await whatsappDB.updateWhatsappTenant(req.params.id, {
+            business_name,
+            ghl_location_id,
+            whatsapp_phone_number,
+            ghl_api_key
+        });
+        res.json({ success: true, tenant: updated });
+    } catch (error) {
+        console.error('Error updating whatsapp tenant:', error);
+        res.status(500).json({ error: error.message || 'Server error' });
+    }
+});
+
 // ── Built-in WhatsApp Bridge (Baileys) ────────────────────────────────────────
 // No external Evolution API server required. Baileys handles everything in-process.
 

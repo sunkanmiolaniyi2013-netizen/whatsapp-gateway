@@ -82,6 +82,16 @@ async function deleteWhatsappTenant(id) {
     return true;
 }
 
+async function updateWhatsappTenant(id, payload) {
+    const { data, error } = await supabase
+        .from('whatsapp_tenants')
+        .update(payload)
+        .eq('id', id)
+        .select();
+    if (error) throw error;
+    return data[0];
+}
+
 module.exports = {
     getWhatsappTenantsByLocationId,
     getWhatsappTenantByExactPhone,
@@ -90,5 +100,6 @@ module.exports = {
     getAllWhatsappTenants,
     updateWhatsappTenantPhone,
     updateWhatsappTenantOAuthTokens,
-    deleteWhatsappTenant
+    deleteWhatsappTenant,
+    updateWhatsappTenant
 };
