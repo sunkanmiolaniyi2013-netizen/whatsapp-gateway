@@ -6,6 +6,7 @@ const whatsappDB = require('../db/whatsappQueries');
 const wa = require('../services/whatsappBailey');
 const ghlService = require('../services/ghl');
 const axios = require('axios');
+const convoTracker = require('../services/whatsappConversationTracker');
 
 // ─── 1. Provider Send Route (For GHL Custom Provider) ───────────────────────
 router.post('/provider/send-message', async (req, res) => {
@@ -47,6 +48,14 @@ router.post('/provider/send-message', async (req, res) => {
         // Send via built-in Baileys bridge
         await wa.sendMessage(instanceId, toNumber, body);
 
+        // ── Track this conversation for inbound reply matching ────────────
+        convoTracker.trackOutbound({
+            toNumber,
+            contactId: payload.contactId || null,
+            conversationId: payload.conversationId || null,
+            locationId
+        });
+
         // Log the outbound message
         await db.logMessage({
             tenant_id: tenant.id,
@@ -58,6 +67,7 @@ router.post('/provider/send-message', async (req, res) => {
             status: 'sent'
         });
 
+        console.log(`[WhatsApp] Sent to ${toNumber} for contact ${payload.contactId || 'unknown'}`);
         return res.status(200).json({ success: true, messageId });
     } catch (error) {
         console.error('[WhatsApp Route] Send Error:', error);

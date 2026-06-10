@@ -203,6 +203,7 @@ async function findContactByPhone(token, locationId, rawPhone) {
 async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS') {
     try {
         const token = await getValidAccessToken(tenant);
+        const convoTracker = require('./whatsappConversationTracker');
 
         let to_number = tenant.phone_number || tenant.whatsapp_phone_number;
         if (to_number && !to_number.startsWith('+')) to_number = '+' + to_number;
@@ -212,10 +213,24 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         console.log(`[GHL] pushInbound: from=${from_number}, to=${to_number}, type=${channelType}`);
 
-        // ── Step 1: Find the existing contact using smart phone matching ─────
-        let contactId = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+        let contactId = null;
+        let conversationId = null;
 
-        // ── Step 2: Only create a new contact as an absolute last resort ──────
+        // ── Step 1: Check conversation tracker (FASTEST — uses our outbound history) ──
+        const tracked = convoTracker.lookupInbound(from_number);
+        if (tracked) {
+            contactId = tracked.contactId;
+            conversationId = tracked.conversationId;
+            console.log(`[GHL] ✅ Conversation tracker matched! contactId=${contactId}, convId=${conversationId}`);
+        }
+
+        // ── Step 2: If no tracker match, search GHL contacts by phone ─────────
+        if (!contactId) {
+            console.log(`[GHL] No tracker match. Searching GHL contacts for ${from_number}...`);
+            contactId = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+        }
+
+        // ── Step 3: Only create a new contact as absolute last resort ─────────
         if (!contactId) {
             console.log(`[GHL] No existing contact matched. Creating new contact for ${from_number}...`);
             try {
@@ -251,17 +266,25 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
             }
         }
 
-        // ── Step 3: Push the inbound message ──────────────────────────────────
+        // ── Step 4: Push the inbound message ──────────────────────────────────
         const payload = {
             type: channelType,
-            to: to_number,
-            from: from_number,
             message: body
         };
+
+        // If we have a conversationId from the tracker, use it — this guarantees
+        // the reply lands in the EXACT same conversation thread in GHL.
+        if (conversationId) {
+            payload.conversationId = conversationId;
+        }
 
         if (contactId) {
             payload.contactId = contactId;
         }
+
+        // Always include to/from for GHL's routing
+        payload.to = to_number;
+        payload.from = from_number;
 
         console.log(`[GHL] Posting inbound message:`, JSON.stringify(payload));
 
