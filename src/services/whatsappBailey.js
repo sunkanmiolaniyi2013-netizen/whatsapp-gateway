@@ -143,21 +143,24 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                             if (ext === 'jpeg') ext = 'jpg';
                             const filename = `${instanceId}_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
                             
-                            // Upload to Supabase Storage
-                            const supabase = require('../db/supabase');
-                            console.log(`[Baileys] ☁️ Uploading ${buffer.length} bytes to Supabase...`);
-                            const { error: uploadErr } = await supabase.storage.from('whatsapp_media').upload(filename, buffer, {
-                                contentType: mimetype,
-                                upsert: true
-                            });
-
-                            if (uploadErr) {
-                                console.error(`[Baileys] Supabase upload failed:`, uploadErr.message);
-                            } else {
-                                const { data } = supabase.storage.from('whatsapp_media').getPublicUrl(filename);
-                                mediaUrl = data.publicUrl;
-                                console.log(`[Baileys] ✅ Media uploaded: ${mediaUrl}`);
+                            // Save media to local filesystem to serve it to GHL immediately
+                            const fs = require('fs');
+                            const path = require('path');
+                            const mediaDir = path.join(__dirname, '../../public/media');
+                            if (!fs.existsSync(mediaDir)) {
+                                fs.mkdirSync(mediaDir, { recursive: true });
                             }
+                            
+                            const filePath = path.join(mediaDir, filename);
+                            fs.writeFileSync(filePath, buffer);
+
+                            // Determine public URL (Railway provides RAILWAY_PUBLIC_DOMAIN)
+                            const domain = process.env.RAILWAY_PUBLIC_DOMAIN 
+                                ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` 
+                                : `http://localhost:${process.env.PORT || 3000}`;
+                            
+                            mediaUrl = `${domain}/media/${filename}`;
+                            console.log(`[Baileys] ✅ Media saved locally and accessible at: ${mediaUrl}`);
                         }
                         
                         const mediaLabel = detectedType.replace('Message', '');
