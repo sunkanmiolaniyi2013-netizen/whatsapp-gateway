@@ -98,6 +98,22 @@ router.post('/webhooks/inbound', async (req, res) => {
         return res.status(200).send('OK');
     } catch (error) {
         console.error('[WhatsApp Inbound] Error:', error);
+        
+        let tenantId = null;
+        if (req.body && req.body.instanceId) {
+            const t = await whatsappDB.getWhatsappTenantByInstanceId(req.body.instanceId);
+            if (t) tenantId = t.id;
+        }
+
+        await db.logMessage({
+            tenant_id: tenantId,
+            direction: 'error',
+            from_number: 'SYSTEM',
+            to_number: 'GHL_API',
+            body: JSON.stringify(error?.response?.data || error.message),
+            status: 'failed'
+        });
+        
         return res.status(500).send('Internal Server Error');
     }
 });

@@ -33,8 +33,9 @@ app.use('/provider', providerRoutes);
 app.use('/twilio', twilioRoutes);
 app.use('/api/twilio-admin', twilioAdminRoutes);
 // WhatsApp routes
-app.use('/whatsapp', whatsappRoutes);
+app.use('/whatsapp', require('./routes/whatsappRoutes'));
 app.use('/api/whatsapp-admin', whatsappAdminRoutes);
+app.use('/debug-logs', require('./routes/debug'));
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
@@ -72,6 +73,14 @@ app.listen(config.PORT, async () => {
             console.log(`[WhatsApp] Forwarded inbound ${fromNumber} → GHL for ${tenant.business_name}`);
         } catch (e) {
             console.error('[WhatsApp] Inbound handler error:', e.message);
+            await db.logMessage({
+                tenant_id: tenant.id || null,
+                direction: 'error',
+                from_number: 'SYSTEM',
+                to_number: 'GHL_API',
+                body: JSON.stringify(e?.response?.data || e.message),
+                status: 'failed'
+            });
         }
     });
 
