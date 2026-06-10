@@ -139,9 +139,24 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                         });
                         if (buffer && buffer.length > 0) {
                             const mimetype = msg.message[detectedType].mimetype || 'image/jpeg';
-                            const base64 = buffer.toString('base64');
-                            mediaUrl = `data:${mimetype};base64,${base64}`;
-                            console.log(`[Baileys] ✅ Media downloaded: ${detectedType}, ${buffer.length} bytes`);
+                            const ext = mimetype.split('/')[1]?.split(';')[0] || 'bin';
+                            const filename = `${instanceId}_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+                            
+                            // Upload to Supabase Storage
+                            const supabase = require('../db/supabase');
+                            console.log(`[Baileys] ☁️ Uploading ${buffer.length} bytes to Supabase...`);
+                            const { error: uploadErr } = await supabase.storage.from('whatsapp_media').upload(filename, buffer, {
+                                contentType: mimetype,
+                                upsert: true
+                            });
+
+                            if (uploadErr) {
+                                console.error(`[Baileys] Supabase upload failed:`, uploadErr.message);
+                            } else {
+                                const { data } = supabase.storage.from('whatsapp_media').getPublicUrl(filename);
+                                mediaUrl = data.publicUrl;
+                                console.log(`[Baileys] ✅ Media uploaded: ${mediaUrl}`);
+                            }
                         }
                         if (!body) body = `📎 ${detectedType.replace('Message', '')}`;
                     } catch (mediaErr) {

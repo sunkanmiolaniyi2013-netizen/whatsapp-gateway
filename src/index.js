@@ -58,8 +58,9 @@ app.listen(config.PORT, async () => {
     const db = require('./db/queries');
 
     wa.setMessageHandler(async (instanceId, fromNumber, body, mediaUrl) => {
+        let tenant = null;
         try {
-            const tenant = await whatsappDB.getWhatsappTenantByInstanceId(instanceId);
+            tenant = await whatsappDB.getWhatsappTenantByInstanceId(instanceId);
             if (!tenant) return;
             await db.logMessage({
                 tenant_id: tenant.id,
@@ -74,7 +75,7 @@ app.listen(config.PORT, async () => {
         } catch (e) {
             console.error('[WhatsApp] Inbound handler error:', e.message);
             await db.logMessage({
-                tenant_id: tenant.id || null,
+                tenant_id: tenant?.id || null,
                 direction: 'error',
                 from_number: 'SYSTEM',
                 to_number: 'GHL_API',
