@@ -254,31 +254,24 @@
     <!-- Step-by-Step Wizard -->
     <div class="wizard">
         <div class="wizard-title">🚀 Quick Setup Wizard</div>
-        <div class="wizard-sub">Set up a new WhatsApp number in 3 steps — no Postman or terminal needed.</div>
+        <div class="wizard-sub">Set up a new WhatsApp number in 2 steps — built-in WhatsApp bridge, no external server needed.</div>
         <div class="wizard-steps">
-            <div class="step-badge active" id="stepBadge1">1 · Evolution Server Details</div>
-            <div class="step-badge" id="stepBadge2">2 · Get QR Code & Scan</div>
+            <div class="step-badge active" id="stepBadge1">1 · Name Your Instance</div>
+            <div class="step-badge" id="stepBadge2">2 · Scan QR Code</div>
             <div class="step-badge" id="stepBadge3">3 · Link to GHL Location</div>
         </div>
 
-        <!-- Step 1: Evolution Server Details -->
+        <!-- Step 1: Instance Name -->
         <div id="step1">
             <div class="form-grid">
                 <div class="form-group">
-                    <label for="evo_url">Evolution API Base URL</label>
-                    <input type="text" id="evo_url" placeholder="e.g. https://evolution.myserver.com">
-                </div>
-                <div class="form-group">
-                    <label for="evo_key">Evolution API Key (Global)</label>
-                    <input type="password" id="evo_key" placeholder="Your Evolution API key" autocomplete="off">
-                </div>
-                <div class="form-group">
                     <label for="instance_name">Instance Name</label>
-                    <input type="text" id="instance_name" placeholder="e.g. business-1-wa">
+                    <input type="text" id="instance_name" placeholder="e.g. client-acme-wa">
+                    <span style="font-size:11px;color:var(--muted);margin-top:4px;">A unique name to identify this WhatsApp number (letters, numbers, hyphens only)</span>
                 </div>
                 <div class="form-group" style="align-self:end">
                     <button class="btn btn-primary" onclick="createInstance()" id="createBtn">
-                        ➡️ Create Instance & Get QR Code
+                        ➡️ Start & Get QR Code
                     </button>
                 </div>
             </div>
@@ -471,70 +464,71 @@
         });
     }
 
-    // Step 1: Create instance on Evolution API (via server-side proxy to avoid CORS)
+    // Step 1: Start built-in Baileys session
     async function createInstance() {
-        const evo_url = document.getElementById('evo_url').value.trim().replace(/\/$/, '');
-        const evo_key = document.getElementById('evo_key').value.trim();
-        const instance_name = document.getElementById('instance_name').value.trim();
+        const instance_name = document.getElementById('instance_name').value.trim().replace(/[^a-zA-Z0-9-_]/g, '-');
+        if (!instance_name) return showStatus('Please enter an instance name', false);
 
-        if (!evo_url || !evo_key || !instance_name) {
-            return showStatus('Please fill in all fields in Step 1', false);
-        }
-
-        currentEvoUrl = evo_url;
-        currentEvoKey = evo_key;
         currentInstanceName = instance_name;
 
         const btn = document.getElementById('createBtn');
         btn.disabled = true;
-        btn.textContent = 'Creating...';
+        btn.textContent = '⏳ Starting... (up to 15s)';
+        showStatus('Starting WhatsApp connection...', true);
 
         try {
-            // 1. Create the instance (via our server proxy — no CORS)
-            const createData = await authFetch('/api/whatsapp-admin/evo/create-instance', {
+            const data = await authFetch('/api/whatsapp-admin/bridge/start', {
                 method: 'POST',
-                body: JSON.stringify({ evo_url, evo_key, instance_name })
-            });
-            console.log('[Wizard] Instance created:', createData);
-
-            // 2. Set the webhook so replies come back to us (via proxy)
-            const webhookUrl = base + '/whatsapp/webhooks/inbound';
-            await authFetch('/api/whatsapp-admin/evo/set-webhook', {
-                method: 'POST',
-                body: JSON.stringify({ evo_url, evo_key, instance_name, webhook_url: webhookUrl })
+                body: JSON.stringify({ instance_name })
             });
 
-            // 3. Show QR step
-            setStep(2);
-            document.getElementById('step2').style.display = 'block';
-            await loadQR();
-            startPolling();
+            if (data.status === 'open') {
+                // Already connected!
+                showStatus('✅ Already connected as ' + data.phone, true);
+                setStep(3);
+                document.getElementById('step3').style.display = 'block';
+                return;
+            }
 
-            showStatus('✅ Instance created! Scan the QR code.');
+            if (data.status === 'qr' && data.qr) {
+                setStep(2);
+                document.getElementById('step2').style.display = 'block';
+                document.getElementById('qrImage').src = data.qr;
+                document.getElementById('qrStatus').textContent = '⏳ Waiting for scan...';
+                document.getElementById('qrStatus').className = 'qr-status waiting';
+                startPolling();
+                showStatus('📱 QR ready! Open WhatsApp → Linked Devices → Scan', true);
+            } else {
+                showStatus('⚠️ Starting up... click Refresh QR in a moment', true);
+                setStep(2);
+                document.getElementById('step2').style.display = 'block';
+                startPolling();
+            }
         } catch (e) {
             showStatus('Error: ' + e.message, false);
         } finally {
             btn.disabled = false;
-            btn.textContent = '➡️ Create Instance & Get QR Code';
+            btn.textContent = '➡️ Start & Get QR Code';
         }
     }
 
     async function loadQR() {
         try {
-            // Get QR via server proxy (no CORS)
-            const data = await authFetch('/api/whatsapp-admin/evo/get-qr', {
+            const data = await authFetch('/api/whatsapp-admin/bridge/get-qr', {
                 method: 'POST',
-                body: JSON.stringify({ evo_url: currentEvoUrl, evo_key: currentEvoKey, instance_name: currentInstanceName })
+                body: JSON.stringify({ instance_name: currentInstanceName })
             });
-            const qrBase64 = data.qrcode?.base64 || data.base64;
-            if (qrBase64) {
-                document.getElementById('qrImage').src = qrBase64;
+            if (data.status === 'open') {
+                document.getElementById('qrStatus').textContent = '✅ WhatsApp Connected!';
+                document.getElementById('qrStatus').className = 'qr-status connected';
+                document.getElementById('continueBtn').style.display = 'inline-flex';
+                clearInterval(qrPollInterval);
+            } else if (data.qr) {
+                document.getElementById('qrImage').src = data.qr;
                 document.getElementById('qrStatus').textContent = '⏳ Waiting for scan...';
                 document.getElementById('qrStatus').className = 'qr-status waiting';
             }
-        } catch(e) {
-            console.error('QR load error:', e);
-        }
+        } catch(e) { console.error('QR load error:', e); }
     }
 
     function refreshQR() {
@@ -546,21 +540,20 @@
         if (qrPollInterval) clearInterval(qrPollInterval);
         qrPollInterval = setInterval(async () => {
             try {
-                // Check status via server proxy (no CORS)
-                const data = await authFetch('/api/whatsapp-admin/evo/check-status', {
+                const data = await authFetch('/api/whatsapp-admin/bridge/status', {
                     method: 'POST',
-                    body: JSON.stringify({ evo_url: currentEvoUrl, evo_key: currentEvoKey, instance_name: currentInstanceName })
+                    body: JSON.stringify({ instance_name: currentInstanceName })
                 });
-                if (data.state === 'open') {
+                if (data.status === 'open') {
                     clearInterval(qrPollInterval);
-                    document.getElementById('qrStatus').textContent = '✅ WhatsApp Connected!';
+                    document.getElementById('qrStatus').textContent = '✅ Connected as ' + (data.phone || 'WhatsApp');
                     document.getElementById('qrStatus').className = 'qr-status connected';
                     document.getElementById('continueBtn').style.display = 'inline-flex';
                     document.getElementById('stepBadge2').className = 'step-badge done';
                     showStatus('✅ WhatsApp connected! Now fill in Step 3.', true);
                 }
             } catch(e) { /* silent poll failure */ }
-        }, 5000);
+        }, 4000);
     }
 
     function goToStep3() {
