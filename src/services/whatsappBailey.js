@@ -139,7 +139,8 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                         });
                         if (buffer && buffer.length > 0) {
                             const mimetype = msg.message[detectedType].mimetype || 'image/jpeg';
-                            const ext = mimetype.split('/')[1]?.split(';')[0] || 'bin';
+                            let ext = mimetype.split('/')[1]?.split(';')[0] || 'bin';
+                            if (ext === 'jpeg') ext = 'jpg';
                             const filename = `${instanceId}_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
                             
                             // Upload to Supabase Storage
@@ -158,7 +159,13 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                                 console.log(`[Baileys] ✅ Media uploaded: ${mediaUrl}`);
                             }
                         }
-                        if (!body) body = `📎 ${detectedType.replace('Message', '')}`;
+                        
+                        const mediaLabel = detectedType.replace('Message', '');
+                        if (!body) {
+                            body = mediaUrl ? `📎 ${mediaLabel}\n\n${mediaUrl}` : `📎 ${mediaLabel}`;
+                        } else if (mediaUrl) {
+                            body = `${body}\n\n📎 View attached ${mediaLabel}:\n${mediaUrl}`;
+                        }
                     } catch (mediaErr) {
                         console.error(`[Baileys] Media download failed (non-fatal):`, mediaErr.message);
                         if (!body) body = '📎 (media received)';
