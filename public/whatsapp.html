@@ -440,7 +440,8 @@
 
         if (!res.ok) {
             const err = await res.json().catch(() => ({ error: res.statusText }));
-            throw new Error(err.error || res.statusText);
+            // Evolution API returns {message:...} not {error:...} — handle both
+            throw new Error(err.error || err.message || res.statusText || 'Unknown error');
         }
         return res.json();
     }

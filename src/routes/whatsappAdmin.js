@@ -59,7 +59,9 @@ router.post('/evo/create-instance', async (req, res) => {
         );
         res.json(response.data);
     } catch (e) {
-        res.status(e.response?.status || 500).json(e.response?.data || { error: e.message });
+        res.status(e.response?.status || 500).json({
+            error: e.response?.data?.message || e.response?.data?.error || e.message || 'Evolution API error'
+        });
     }
 });
 
@@ -74,7 +76,9 @@ router.post('/evo/set-webhook', async (req, res) => {
         );
         res.json(response.data);
     } catch (e) {
-        res.status(e.response?.status || 500).json(e.response?.data || { error: e.message });
+        res.status(e.response?.status || 500).json({
+            error: e.response?.data?.message || e.response?.data?.error || e.message || 'Evolution API error'
+        });
     }
 });
 
@@ -88,7 +92,9 @@ router.post('/evo/get-qr', async (req, res) => {
         );
         res.json(response.data);
     } catch (e) {
-        res.status(e.response?.status || 500).json(e.response?.data || { error: e.message });
+        res.status(e.response?.status || 500).json({
+            error: e.response?.data?.message || e.response?.data?.error || e.message || 'Evolution API error'
+        });
     }
 });
 
@@ -104,7 +110,9 @@ router.post('/evo/check-status', async (req, res) => {
         const instance = instances.find(i => i.instance?.instanceName === instance_name);
         res.json({ state: instance?.instance?.state || 'unknown' });
     } catch (e) {
-        res.status(e.response?.status || 500).json(e.response?.data || { error: e.message });
+        res.status(e.response?.status || 500).json({
+            error: e.response?.data?.message || e.response?.data?.error || e.message || 'Evolution API error'
+        });
     }
 });
 
