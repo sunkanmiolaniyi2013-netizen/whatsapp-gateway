@@ -148,24 +148,32 @@ async function getValidAccessToken(tenant) {
 }
 
 /**
- * Pushes an inbound message reply into GoHighLevel's conversation inbox
- * Used for routing Android Gateway texts or WhatsApp back into GHL's UI natively
+ * Searches GHL contacts using multiple phone-format strategies.
+ * Returns the first matching contactId, or null.
  */
-async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS') {
-    try {
-        const token = await getValidAccessToken(tenant);
-        let contactId = null;
+async function findContactByPhone(token, locationId, rawPhone) {
+    // Strategy 1: Search with the full phone number as-is
+    const searchVariants = [rawPhone];
 
-        let to_number = tenant.phone_number || tenant.whatsapp_phone_number;
-        if (to_number && !to_number.startsWith('+')) to_number = '+' + to_number;
-        
-        let from_number = fromNumber;
-        if (from_number && !from_number.startsWith('+')) from_number = '+' + from_number;
+    // Strategy 2: Digits-only (no +, no spaces, no dashes)
+    const digitsOnly = rawPhone.replace(/\D/g, '');
+    if (digitsOnly !== rawPhone.replace('+', '')) searchVariants.push(digitsOnly);
 
+    // Strategy 3: Last 10 digits (strips country code for matching)
+    if (digitsOnly.length > 10) {
+        searchVariants.push(digitsOnly.slice(-10));
+    }
+
+    // Strategy 4: Last 9 digits (some countries use 9-digit local numbers)
+    if (digitsOnly.length > 9) {
+        searchVariants.push(digitsOnly.slice(-9));
+    }
+
+    for (const query of searchVariants) {
         try {
-            // Find the contact in GHL to get their ID (required for inbound V2 API)
+            console.log(`[GHL] Contact search attempt: query="${query}" for location ${locationId}`);
             const searchRes = await axios.get(
-                `https://services.leadconnectorhq.com/contacts/?locationId=${tenant.ghl_location_id}&query=${encodeURIComponent(from_number)}`,
+                `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}&query=${encodeURIComponent(query)}`,
                 {
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -175,16 +183,49 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
                 }
             );
             if (searchRes.data?.contacts?.length > 0) {
-                contactId = searchRes.data.contacts[0].id;
-            } else {
-                console.log(`[GHL] Contact not found for ${from_number}. Creating new contact...`);
+                const contact = searchRes.data.contacts[0];
+                console.log(`[GHL] ✅ Contact FOUND: "${contact.firstName || ''} ${contact.lastName || ''}" (${contact.id}) via query="${query}"`);
+                return contact.id;
+            }
+        } catch (e) {
+            console.error(`[GHL] Search error for query="${query}":`, e?.response?.data || e.message);
+        }
+    }
+
+    console.log(`[GHL] ❌ No existing contact found for ${rawPhone} after trying ${searchVariants.length} search variants`);
+    return null;
+}
+
+/**
+ * Pushes an inbound message reply into GoHighLevel's conversation inbox
+ * Used for routing Android Gateway texts or WhatsApp back into GHL's UI natively
+ */
+async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS') {
+    try {
+        const token = await getValidAccessToken(tenant);
+
+        let to_number = tenant.phone_number || tenant.whatsapp_phone_number;
+        if (to_number && !to_number.startsWith('+')) to_number = '+' + to_number;
+        
+        let from_number = fromNumber;
+        if (from_number && !from_number.startsWith('+')) from_number = '+' + from_number;
+
+        console.log(`[GHL] pushInbound: from=${from_number}, to=${to_number}, type=${channelType}`);
+
+        // ── Step 1: Find the existing contact using smart phone matching ─────
+        let contactId = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+
+        // ── Step 2: Only create a new contact as an absolute last resort ──────
+        if (!contactId) {
+            console.log(`[GHL] No existing contact matched. Creating new contact for ${from_number}...`);
+            try {
                 const createRes = await axios.post(
                     `https://services.leadconnectorhq.com/contacts/`,
                     {
                         locationId: tenant.ghl_location_id,
                         phone: from_number,
                         firstName: 'WhatsApp',
-                        lastName: 'Lead'
+                        lastName: from_number
                     },
                     {
                         headers: {
@@ -197,13 +238,20 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
                 );
                 if (createRes.data?.contact?.id) {
                     contactId = createRes.data.contact.id;
-                    console.log(`[GHL] Created contact: ${contactId}`);
+                    console.log(`[GHL] Created new contact: ${contactId}`);
+                }
+            } catch (createErr) {
+                // If creation fails with "duplicate", the contact already exists — try to extract the ID
+                const errData = createErr?.response?.data;
+                console.error('[GHL] Contact creation error:', errData || createErr.message);
+                if (errData?.meta?.contactId) {
+                    contactId = errData.meta.contactId;
+                    console.log(`[GHL] Recovered duplicate contactId from error response: ${contactId}`);
                 }
             }
-        } catch (e) {
-            console.error('Failed to look up or create contact ID:', e?.response?.data || e.message);
         }
 
+        // ── Step 3: Push the inbound message ──────────────────────────────────
         const payload = {
             type: channelType,
             to: to_number,
@@ -214,6 +262,8 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
         if (contactId) {
             payload.contactId = contactId;
         }
+
+        console.log(`[GHL] Posting inbound message:`, JSON.stringify(payload));
 
         const response = await axios.post(
             'https://services.leadconnectorhq.com/conversations/messages/inbound',
