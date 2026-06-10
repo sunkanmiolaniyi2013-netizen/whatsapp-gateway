@@ -21,6 +21,12 @@ async function getValidAccessToken(tenant) {
     if (tenant.gateway_device_id !== undefined) tableName = 'tenants';
     else if (tenant.whatsapp_instance_id !== undefined) tableName = 'whatsapp_tenants';
 
+    // To prevent GHL from automatically forcing inbound messages into the WhatsApp tab
+    // (which triggers the subscription block), we want to use an SMS Provider's OAuth token
+    // instead of the WhatsApp provider's OAuth token whenever possible.
+    let preferSiblingSmsToken = false;
+    if (tableName === 'whatsapp_tenants') preferSiblingSmsToken = true;
+
     // ── Sibling Token Lookup ─────────────────────────────────────────────────
     // If this specific row has no refresh token yet, look for one from a sibling
     // tenant on the same location (e.g. a Twilio tenant inheriting from Android).
@@ -42,8 +48,14 @@ async function getValidAccessToken(tenant) {
             console.log(`[OAuth] ✅ PIT fallback: using Android sibling PIT key for location ${tenant.ghl_location_id}`);
             return pitSiblings[0].ghl_api_key;
         }
+    }
 
-        // ── Fallback 2: OAuth Token Sibling ───────────────────────────────────
+    if (!tenant.ghl_refresh_token || preferSiblingSmsToken) {
+        if (!tenant.ghl_refresh_token) {
+            console.log(`[OAuth] Row ${tenant.id} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
+        } else {
+            console.log(`[OAuth] Forcing SMS token lookup to bypass GHL WhatsApp channel strictness for ${tenant.ghl_location_id}...`);
+        }
         // No PIT found — try to inherit OAuth tokens from any sibling tenant row.
         let siblingToken = null;
 
@@ -78,6 +90,7 @@ async function getValidAccessToken(tenant) {
             if (sibling3 && sibling3.length > 0) siblingToken = sibling3[0];
         }
 
+        // If we found a sibling SMS token, use it! If not, fallback to whatever we have.
         if (siblingToken && siblingToken.ghl_refresh_token) {
             console.log(`[OAuth] Sibling tokens found! Inheriting into row ${tenant.id}...`);
             tenant.ghl_access_token = siblingToken.ghl_access_token;

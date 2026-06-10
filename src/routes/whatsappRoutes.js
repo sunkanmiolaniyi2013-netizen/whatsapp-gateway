@@ -93,7 +93,8 @@ router.post('/webhooks/inbound', async (req, res) => {
             status: 'received'
         });
 
-        await ghlService.pushInboundMessageToGHL(tenant, fromNumber, msgBody, 'SMS');
+        const finalBody = `[WhatsApp] ${msgBody}`;
+        await ghlService.pushInboundMessageToGHL(tenant, fromNumber, finalBody, 'SMS');
 
         return res.status(200).send('OK');
     } catch (error) {
