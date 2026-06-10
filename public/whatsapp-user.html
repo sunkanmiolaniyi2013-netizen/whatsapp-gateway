@@ -310,7 +310,7 @@
 
     async function checkCurrentStatus() {
         try {
-            const res = await fetch(`/whatsapp-setup/status?location_id=${locationId}`);
+            const res = await fetch(`/whatsapp/setup/status?location_id=${locationId}`);
             if (!res.ok) {
                 if (res.status === 404) {
                     // No tenant exists yet, wait for user to click Generate
@@ -351,7 +351,7 @@
         elements.instructions.style.display = 'none';
 
         try {
-            const res = await fetch('/whatsapp-setup/start', {
+            const res = await fetch('/whatsapp/setup/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ location_id: locationId })
@@ -396,7 +396,7 @@
         
         pollInterval = setInterval(async () => {
             try {
-                const res = await fetch(`/whatsapp-setup/status?location_id=${locationId}`);
+                const res = await fetch(`/whatsapp/setup/status?location_id=${locationId}`);
                 if (!res.ok) return;
                 
                 const data = await res.json();
