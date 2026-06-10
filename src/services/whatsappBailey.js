@@ -4,11 +4,12 @@
  * No external Evolution API server needed.
  */
 
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCode = require('qrcode');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 
 // In-memory registry of active sessions
 // instanceId -> { socket, status, qrBase64, phone }
@@ -108,24 +109,55 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
     });
 
     // Forward incoming messages to the global handler (which pushes to GHL)
-    sock.ev.on('messages.upsert', ({ messages, type }) => {
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type === 'notify') {
-            messages.forEach(msg => {
-                if (msg.key.fromMe) return;
+            for (const msg of messages) {
+                if (msg.key.fromMe) continue;
                 const fromJid = msg.key.remoteJid || '';
                 const fromNumber = '+' + fromJid.split('@')[0];
-                const body = msg.message?.conversation ||
-                             msg.message?.extendedTextMessage?.text ||
-                             '*(Media/Unsupported)*';
 
-                console.log(`[Baileys] 📨 Inbound from ${fromNumber} on ${instanceId}`);
+                // Extract text body
+                let body = msg.message?.conversation ||
+                           msg.message?.extendedTextMessage?.text ||
+                           msg.message?.imageMessage?.caption ||
+                           msg.message?.videoMessage?.caption ||
+                           '';
+
+                // Extract media if present
+                let mediaUrl = null;
+                let mediaMimetype = null;
+                const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+                const detectedType = mediaTypes.find(t => msg.message?.[t]);
+
+                if (detectedType) {
+                    try {
+                        console.log(`[Baileys] 📷 Downloading ${detectedType} from ${fromNumber}...`);
+                        const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
+                            logger: require('pino')({ level: 'silent' }),
+                            reuploadRequest: sock.updateMediaMessage
+                        });
+                        mediaMimetype = msg.message[detectedType].mimetype || 'image/jpeg';
+                        const base64 = buffer.toString('base64');
+                        mediaUrl = `data:${mediaMimetype};base64,${base64}`;
+                        console.log(`[Baileys] ✅ Media downloaded: ${detectedType}, ${buffer.length} bytes, mime=${mediaMimetype}`);
+                        
+                        if (!body) body = `📎 ${detectedType.replace('Message', '')}`;
+                    } catch (mediaErr) {
+                        console.error(`[Baileys] Failed to download media:`, mediaErr.message);
+                        if (!body) body = '📎 (Media — could not download)';
+                    }
+                }
+
+                if (!body && !mediaUrl) continue; // Skip empty messages
+
+                console.log(`[Baileys] 📨 Inbound from ${fromNumber} on ${instanceId}${mediaUrl ? ' [+media]' : ''}`);
                 if (_globalMessageHandler) {
-                    _globalMessageHandler(instanceId, fromNumber, body).catch(e =>
+                    _globalMessageHandler(instanceId, fromNumber, body, mediaUrl).catch(e =>
                         console.error('[Baileys] Message handler error:', e.message)
                     );
                 }
                 if (onMessage) onMessage(msg);
-            });
+            }
         }
     });
 }
@@ -164,20 +196,60 @@ function getPhone(instanceId) {
 }
 
 /**
- * Send a WhatsApp message.
- * @param {string} instanceId - The session instance
- * @param {string} to - Phone number with country code (e.g. 447911123456)
- * @param {string} text - Message text
+ * Send a WhatsApp text message.
  */
-async function sendMessage(instanceId, to, text) {
+async function sendMessage(instanceId, to, text, attachments = []) {
     const session = sessions[instanceId];
     if (!session || session.status !== 'open') {
         throw new Error(`WhatsApp instance ${instanceId} is not connected`);
     }
 
-    // Normalize JID format
     const jid = to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`;
-    await session.socket.sendMessage(jid, { text });
+
+    // If there are attachments, send each one as media
+    if (attachments && attachments.length > 0) {
+        for (const attachment of attachments) {
+            const url = attachment.url || attachment;
+            if (!url || typeof url !== 'string') continue;
+
+            try {
+                console.log(`[Baileys] Downloading attachment: ${url}`);
+                const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+                const buffer = Buffer.from(response.data);
+                const contentType = response.headers['content-type'] || 'application/octet-stream';
+
+                let msgPayload;
+                if (contentType.startsWith('image/')) {
+                    msgPayload = { image: buffer, caption: text || '', mimetype: contentType };
+                } else if (contentType.startsWith('video/')) {
+                    msgPayload = { video: buffer, caption: text || '', mimetype: contentType };
+                } else if (contentType.startsWith('audio/')) {
+                    msgPayload = { audio: buffer, mimetype: contentType, ptt: false };
+                } else {
+                    // Send as document
+                    const fileName = attachment.fileName || url.split('/').pop()?.split('?')[0] || 'file';
+                    msgPayload = { document: buffer, mimetype: contentType, fileName };
+                }
+
+                await session.socket.sendMessage(jid, msgPayload);
+                console.log(`[Baileys] ✅ Media sent: ${contentType}, ${buffer.length} bytes`);
+
+                // If image/video had a caption, we already sent the text with it
+                // Clear text so we don't send it again as a separate message
+                text = null;
+            } catch (dlErr) {
+                console.error(`[Baileys] Failed to download/send attachment: ${dlErr.message}`);
+                // Fall back to sending URL as text
+                await session.socket.sendMessage(jid, { text: `${text || ''}\n📎 ${url}`.trim() });
+                text = null;
+            }
+        }
+    }
+
+    // Send remaining text (if no attachment consumed it)
+    if (text) {
+        await session.socket.sendMessage(jid, { text });
+    }
 }
 
 /**

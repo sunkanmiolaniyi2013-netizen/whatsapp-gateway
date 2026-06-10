@@ -45,8 +45,9 @@ router.post('/provider/send-message', async (req, res) => {
             }
         }
 
-        // Send via built-in Baileys bridge
-        await wa.sendMessage(instanceId, toNumber, body);
+        // Send via built-in Baileys bridge (supports text + media attachments)
+        const attachments = payload.attachments || [];
+        await wa.sendMessage(instanceId, toNumber, body, attachments);
 
         // ── Track this conversation for inbound reply matching ────────────
         convoTracker.trackOutbound({

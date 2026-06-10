@@ -200,7 +200,7 @@ async function findContactByPhone(token, locationId, rawPhone) {
  * Pushes an inbound message reply into GoHighLevel's conversation inbox
  * Used for routing Android Gateway texts or WhatsApp back into GHL's UI natively
  */
-async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS', instanceId = null) {
+async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = 'SMS', instanceId = null, mediaUrl = null) {
     try {
         const token = await getValidAccessToken(tenant);
         const convoTracker = require('./whatsappConversationTracker');
@@ -285,6 +285,11 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
         // Always include to/from for GHL's routing
         payload.to = to_number;
         payload.from = from_number;
+
+        // Include media attachments if present
+        if (mediaUrl) {
+            payload.attachments = [mediaUrl];
+        }
 
         console.log(`[GHL] Posting inbound message:`, JSON.stringify(payload));
 
