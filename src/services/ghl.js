@@ -143,6 +143,12 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
         const token = await getValidAccessToken(tenant);
         let contactId = null;
 
+        let to_number = tenant.phone_number || tenant.whatsapp_phone_number;
+        if (to_number && !to_number.startsWith('+')) to_number = '+' + to_number;
+        
+        let from_number = fromNumber;
+        if (from_number && !from_number.startsWith('+')) from_number = '+' + from_number;
+
         try {
             // Find the contact in GHL to get their ID (required for inbound V2 API)
             const searchRes = await axios.get(
@@ -164,8 +170,8 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         const payload = {
             type: channelType,
-            to: tenant.phone_number || tenant.whatsapp_phone_number,
-            from: fromNumber,
+            to: to_number,
+            from: from_number,
             message: body
         };
 
