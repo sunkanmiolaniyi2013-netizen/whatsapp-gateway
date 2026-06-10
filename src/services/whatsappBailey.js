@@ -110,10 +110,12 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
 
     // Forward incoming messages to the global handler (which pushes to GHL)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type === 'notify') {
-            for (const msg of messages) {
+        if (type !== 'notify') return;
+        for (const msg of messages) {
+            try {
                 if (msg.key.fromMe) continue;
                 const fromJid = msg.key.remoteJid || '';
+                if (fromJid.endsWith('@g.us')) continue; // Skip group messages
                 const fromNumber = '+' + fromJid.split('@')[0];
 
                 // Extract text body
@@ -123,9 +125,8 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                            msg.message?.videoMessage?.caption ||
                            '';
 
-                // Extract media if present
+                // Try to extract media if present (non-blocking — text always goes through)
                 let mediaUrl = null;
-                let mediaMimetype = null;
                 const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
                 const detectedType = mediaTypes.find(t => msg.message?.[t]);
 
@@ -134,21 +135,22 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                         console.log(`[Baileys] 📷 Downloading ${detectedType} from ${fromNumber}...`);
                         const buffer = await downloadMediaMessage(msg, 'buffer', {}, {
                             logger: require('pino')({ level: 'silent' }),
-                            reuploadRequest: sock.updateMediaMessage
+                            reuploadRequest: sock.updateMediaMessage || sock.resyncMediaMessage || undefined
                         });
-                        mediaMimetype = msg.message[detectedType].mimetype || 'image/jpeg';
-                        const base64 = buffer.toString('base64');
-                        mediaUrl = `data:${mediaMimetype};base64,${base64}`;
-                        console.log(`[Baileys] ✅ Media downloaded: ${detectedType}, ${buffer.length} bytes, mime=${mediaMimetype}`);
-                        
+                        if (buffer && buffer.length > 0) {
+                            const mimetype = msg.message[detectedType].mimetype || 'image/jpeg';
+                            const base64 = buffer.toString('base64');
+                            mediaUrl = `data:${mimetype};base64,${base64}`;
+                            console.log(`[Baileys] ✅ Media downloaded: ${detectedType}, ${buffer.length} bytes`);
+                        }
                         if (!body) body = `📎 ${detectedType.replace('Message', '')}`;
                     } catch (mediaErr) {
-                        console.error(`[Baileys] Failed to download media:`, mediaErr.message);
-                        if (!body) body = '📎 (Media — could not download)';
+                        console.error(`[Baileys] Media download failed (non-fatal):`, mediaErr.message);
+                        if (!body) body = '📎 (media received)';
                     }
                 }
 
-                if (!body && !mediaUrl) continue; // Skip empty messages
+                if (!body && !mediaUrl) continue;
 
                 console.log(`[Baileys] 📨 Inbound from ${fromNumber} on ${instanceId}${mediaUrl ? ' [+media]' : ''}`);
                 if (_globalMessageHandler) {
@@ -157,6 +159,8 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                     );
                 }
                 if (onMessage) onMessage(msg);
+            } catch (outerErr) {
+                console.error('[Baileys] Inbound message processing error (skipping):', outerErr.message);
             }
         }
     });
