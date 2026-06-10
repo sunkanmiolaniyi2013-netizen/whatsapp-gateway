@@ -21,8 +21,8 @@ const qrWaiters = {};
 let _globalMessageHandler = null;
 function setMessageHandler(fn) { _globalMessageHandler = fn; }
 
-// Where to store auth files (Railway ephemeral FS - sessions persist until redeploy)
-const AUTH_DIR = path.join(process.cwd(), '.wa_sessions');
+// Where to store auth files (Use Railway Persistent Volume if available, else ephemeral)
+const AUTH_DIR = fs.existsSync('/data') ? '/data/.wa_sessions' : path.join(process.cwd(), '.wa_sessions');
 if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
 /**
