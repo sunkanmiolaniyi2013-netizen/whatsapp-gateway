@@ -1,94 +1,100 @@
 /**
  * whatsappConversationTracker.js
  * 
- * Tracks outbound WhatsApp conversations so that inbound replies
- * can be routed back to the SAME GHL contact/conversation.
+ * Tracks outbound WhatsApp conversations so inbound replies route to
+ * the SAME GHL contact/conversation — even when phone numbers don't match.
  * 
- * Problem it solves:
- * When GHL sends a message to a contact via WhatsApp, and that contact replies,
- * the reply's phone number might not exactly match what GHL has stored (formatting
- * differences, country code issues, etc). This tracker records the outbound
- * mapping so the reply always lands on the correct contact's conversation.
+ * Two lookup strategies:
+ *   1. By phone number (exact match on digits)
+ *   2. By instance ID (fallback: "what was the last outbound on this session?")
  */
 
-// In-memory map: normalizedPhone -> { contactId, conversationId, locationId, timestamp }
-const conversationMap = new Map();
+// Phone-based map: normalizedPhone -> { contactId, conversationId, locationId, instanceId, timestamp }
+const phoneMap = new Map();
 
-// Entries expire after 30 days (plenty of time for conversations)
-const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
+// Instance-based map: instanceId -> [ { toPhone, contactId, conversationId, locationId, timestamp } ]
+const instanceMap = new Map();
 
-/**
- * Normalize a phone number to digits-only for consistent lookup.
- * "+33 6 52 29 06 26" -> "33652290626"
- */
+const EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 function normalize(phone) {
     return (phone || '').replace(/\D/g, '');
 }
 
 /**
- * Record an outbound message so we can match the reply later.
- * Called when GHL sends a message through our WhatsApp bridge.
+ * Record an outbound message.
  */
-function trackOutbound({ toNumber, contactId, conversationId, locationId }) {
+function trackOutbound({ toNumber, contactId, conversationId, locationId, instanceId }) {
     const key = normalize(toNumber);
     if (!key) return;
     
-    conversationMap.set(key, {
+    const entry = {
+        toPhone: key,
         contactId: contactId || null,
         conversationId: conversationId || null,
         locationId: locationId || null,
+        instanceId: instanceId || null,
         timestamp: Date.now()
-    });
+    };
 
-    console.log(`[ConvoTracker] Tracked outbound: ${key} -> contactId=${contactId}, convId=${conversationId}`);
-    
-    // Cleanup old entries periodically (every 100 new entries)
-    if (conversationMap.size % 100 === 0) {
-        cleanup();
+    // Track by phone
+    phoneMap.set(key, entry);
+
+    // Track by instance (keep most recent per contact)
+    if (instanceId) {
+        if (!instanceMap.has(instanceId)) instanceMap.set(instanceId, []);
+        const list = instanceMap.get(instanceId);
+        // Replace existing entry for same contact, or add new
+        const idx = list.findIndex(e => e.contactId === contactId);
+        if (idx >= 0) list[idx] = entry;
+        else list.push(entry);
+        // Keep only last 50 conversations per instance
+        if (list.length > 50) list.shift();
     }
+
+    console.log(`[ConvoTracker] Tracked: phone=${key}, instance=${instanceId}, contact=${contactId}, conv=${conversationId}`);
 }
 
 /**
- * Look up a tracked conversation for an inbound reply.
- * Returns { contactId, conversationId, locationId } or null.
+ * Look up the correct GHL contact for an inbound reply.
+ * Strategy 1: Match by phone number (the fast path).
+ * Strategy 2: Match by instance ID — find the most recent outbound on this instance.
  */
-function lookupInbound(fromNumber) {
+function lookupInbound(fromNumber, instanceId) {
     const key = normalize(fromNumber);
-    if (!key) return null;
 
-    const entry = conversationMap.get(key);
-    if (!entry) return null;
-
-    // Check if expired
-    if (Date.now() - entry.timestamp > EXPIRY_MS) {
-        conversationMap.delete(key);
-        return null;
-    }
-
-    console.log(`[ConvoTracker] ✅ Match found for ${key}: contactId=${entry.contactId}, convId=${entry.conversationId}`);
-    return entry;
-}
-
-/**
- * Remove expired entries.
- */
-function cleanup() {
-    const now = Date.now();
-    let removed = 0;
-    for (const [key, entry] of conversationMap) {
-        if (now - entry.timestamp > EXPIRY_MS) {
-            conversationMap.delete(key);
-            removed++;
+    // ── Strategy 1: Phone match ──
+    if (key) {
+        const entry = phoneMap.get(key);
+        if (entry && (Date.now() - entry.timestamp < EXPIRY_MS)) {
+            console.log(`[ConvoTracker] ✅ Phone match: ${key} → contact=${entry.contactId}`);
+            return entry;
         }
     }
-    if (removed > 0) console.log(`[ConvoTracker] Cleaned up ${removed} expired entries`);
+
+    // ── Strategy 2: Instance match (last outbound on this WhatsApp session) ──
+    if (instanceId && instanceMap.has(instanceId)) {
+        const list = instanceMap.get(instanceId);
+        // Find the most recent non-expired entry
+        for (let i = list.length - 1; i >= 0; i--) {
+            const entry = list[i];
+            if (Date.now() - entry.timestamp < EXPIRY_MS) {
+                console.log(`[ConvoTracker] ✅ Instance fallback: instance=${instanceId} → contact=${entry.contactId} (last outbound to ${entry.toPhone})`);
+                return entry;
+            }
+        }
+    }
+
+    console.log(`[ConvoTracker] ❌ No match for phone=${key}, instance=${instanceId}`);
+    return null;
 }
 
-/**
- * Get stats for debugging.
- */
 function getStats() {
-    return { tracked: conversationMap.size };
+    return { 
+        phoneEntries: phoneMap.size,
+        instanceEntries: instanceMap.size,
+        allEntries: Array.from(phoneMap.entries()).map(([k, v]) => ({ phone: k, contact: v.contactId, conv: v.conversationId }))
+    };
 }
 
 module.exports = { trackOutbound, lookupInbound, normalize, getStats };

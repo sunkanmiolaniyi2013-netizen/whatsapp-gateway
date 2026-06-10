@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../db/supabase');
+const convoTracker = require('../services/whatsappConversationTracker');
 
 router.get('/', async (req, res) => {
     try {
@@ -10,4 +11,10 @@ router.get('/', async (req, res) => {
         res.json({ error: e.message });
     }
 });
+
+// Show what the conversation tracker currently has in memory
+router.get('/tracker', (req, res) => {
+    res.json(convoTracker.getStats());
+});
+
 module.exports = router;

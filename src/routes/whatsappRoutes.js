@@ -53,7 +53,8 @@ router.post('/provider/send-message', async (req, res) => {
             toNumber,
             contactId: payload.contactId || null,
             conversationId: payload.conversationId || null,
-            locationId
+            locationId,
+            instanceId
         });
 
         // Log the outbound message
@@ -104,7 +105,7 @@ router.post('/webhooks/inbound', async (req, res) => {
         });
 
         const finalBody = `[WhatsApp] ${msgBody}`;
-        await ghlService.pushInboundMessageToGHL(tenant, fromNumber, finalBody, 'SMS');
+        await ghlService.pushInboundMessageToGHL(tenant, fromNumber, finalBody, 'SMS', instanceId);
 
         return res.status(200).send('OK');
     } catch (error) {
