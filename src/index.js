@@ -68,7 +68,7 @@ app.listen(config.PORT, async () => {
                 body,
                 status: 'received'
             });
-            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'WhatsApp');
+            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'SMS');
             console.log(`[WhatsApp] Forwarded inbound ${fromNumber} → GHL for ${tenant.business_name}`);
         } catch (e) {
             console.error('[WhatsApp] Inbound handler error:', e.message);
