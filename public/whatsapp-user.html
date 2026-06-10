@@ -261,7 +261,7 @@
 <script>
     // Get location_id from GHL iframe URL parameters
     const urlParams = new URLSearchParams(window.location.search);
-    const locationId = urlParams.get('location_id');
+    const locationId = urlParams.get('location_id') || urlParams.get('locationId');
 
     const elements = {
         actionBtn: document.getElementById('actionBtn'),
