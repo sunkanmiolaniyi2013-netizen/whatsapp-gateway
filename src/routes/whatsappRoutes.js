@@ -2,37 +2,53 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/queries');
 const whatsappDB = require('../db/whatsappQueries');
-const whatsappGateway = require('../services/whatsappGateway');
+const wa = require('../services/whatsappBailey');
 const ghlService = require('../services/ghl');
+const axios = require('axios');
 
-// ─── 1. Provider Send Route (For GHL Custom Provider / Webhook) ───────────────
+// ─── 1. Provider Send Route (For GHL Custom Provider) ───────────────────────
 router.post('/provider/send-message', async (req, res) => {
     try {
         const payload = req.body;
         const locationId = payload.locationId;
         const toNumber = payload.phone;
         const body = payload.message;
-        const messageId = payload.messageId; // optional if from custom provider
+        const messageId = payload.messageId;
 
         if (!locationId || !toNumber || !body) {
             return res.status(400).json({ success: false, message: 'Missing fields' });
         }
 
-        // Fetch all active WhatsApp tenants for this location
+        // Find active WhatsApp tenant for this GHL location
         const tenants = await whatsappDB.getWhatsappTenantsByLocationId(locationId);
         if (!tenants || tenants.length === 0) {
             return res.status(404).json({ success: false, message: 'No active WhatsApp tenant found for this location' });
         }
+        const tenant = tenants[0];
+        const instanceId = tenant.whatsapp_instance_id;
 
-        // Very basic load balancing/round-robin or just pick the first one.
-        // For now, we pick the first available one or one matching the country code.
-        const tenant = tenants[0]; // TODO: Implement number pooling logic here if needed
+        // Ensure the Baileys session is running for this instance
+        const status = wa.getStatus(instanceId);
+        if (status !== 'open') {
+            // Try to restore session
+            await new Promise(resolve => {
+                wa.startSession(instanceId, {
+                    onConnected: resolve,
+                    onDisconnected: () => {}
+                });
+                setTimeout(resolve, 5000); // Don't block more than 5s
+            });
+            if (wa.getStatus(instanceId) !== 'open') {
+                return res.status(503).json({ success: false, message: 'WhatsApp session not connected. Please re-scan QR code.' });
+            }
+        }
 
-        const result = await whatsappGateway.sendWhatsappMessage(tenant, toNumber, body);
+        // Send via built-in Baileys bridge
+        await wa.sendMessage(instanceId, toNumber, body);
 
-        // Log the message history in the central messages table
+        // Log the outbound message
         await db.logMessage({
-            tenant_id: tenant.id, // note: foreign key might be tied to generic tenants, but it's UUID
+            tenant_id: tenant.id,
             direction: 'outbound',
             from_number: tenant.whatsapp_phone_number,
             to_number: toNumber,
@@ -41,67 +57,46 @@ router.post('/provider/send-message', async (req, res) => {
             status: 'sent'
         });
 
-        return res.status(200).json({ success: true, messageId, result });
+        return res.status(200).json({ success: true, messageId });
     } catch (error) {
         console.error('[WhatsApp Route] Send Error:', error);
         return res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// ─── 2. Inbound Webhooks from Evolution API ──────────────────────────────────
+// ─── 2. Inbound Messages from Baileys (called internally by the session manager) ─
+// This endpoint receives inbound WhatsApp messages and pushes them to GHL.
+// It's called by registering a global message handler in whatsappBailey.js
 router.post('/webhooks/inbound', async (req, res) => {
     try {
-        const event = req.body;
-        
-        // Evolution API usually sends event type (e.g., 'messages.upsert')
-        if (event.event !== 'messages.upsert' && !event.data) {
-            return res.status(200).send('Ignored event type');
+        const { instanceId, fromNumber, body: msgBody } = req.body;
+
+        if (!instanceId || !fromNumber || !msgBody) {
+            return res.status(200).send('Missing fields — ignored');
         }
 
-        const instanceId = event.instance;
-        const messages = event.data?.messages || [];
-        
-        if (!instanceId || messages.length === 0) {
-            return res.status(200).send('No message content');
-        }
-
-        // Find the tenant that owns this instance
         const tenant = await whatsappDB.getWhatsappTenantByInstanceId(instanceId);
         if (!tenant) {
-            console.error(`[WhatsApp Webhook] Unknown instance ID: ${instanceId}`);
-            return res.status(404).send('Tenant not found');
+            console.error(`[WhatsApp Inbound] Unknown instance: ${instanceId}`);
+            return res.status(200).send('Tenant not found');
         }
 
-        for (const msg of messages) {
-            // Ignore messages sent BY the business
-            if (msg.key?.fromMe) continue;
-            
-            const fromNumber = '+' + msg.key.remoteJid.split('@')[0]; // convert 1234@s.whatsapp.net to +1234
-            
-            // Extract text from Evolution API message types
-            const body = msg.message?.conversation || 
-                         msg.message?.extendedTextMessage?.text || 
-                         "*(Media/Unsupported Message)*";
+        console.log(`[WhatsApp Inbound] ${fromNumber} → ${tenant.whatsapp_phone_number}`);
 
-            console.log(`[WhatsApp Inbound] Message from ${fromNumber} to ${tenant.whatsapp_phone_number}`);
+        await db.logMessage({
+            tenant_id: tenant.id,
+            direction: 'inbound',
+            from_number: fromNumber,
+            to_number: tenant.whatsapp_phone_number,
+            body: msgBody,
+            status: 'received'
+        });
 
-            // Log it
-            await db.logMessage({
-                tenant_id: tenant.id,
-                direction: 'inbound',
-                from_number: fromNumber,
-                to_number: tenant.whatsapp_phone_number,
-                body: body,
-                status: 'received'
-            });
-
-            // Push to GHL
-            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'WhatsApp');
-        }
+        await ghlService.pushInboundMessageToGHL(tenant, fromNumber, msgBody, 'WhatsApp');
 
         return res.status(200).send('OK');
     } catch (error) {
-        console.error('[WhatsApp Webhook] Error:', error);
+        console.error('[WhatsApp Inbound] Error:', error);
         return res.status(500).send('Internal Server Error');
     }
 });

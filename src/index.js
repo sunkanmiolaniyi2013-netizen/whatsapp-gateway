@@ -41,14 +41,54 @@ app.get('/health', (req, res) => {
 });
 
 // Start Server
-app.listen(config.PORT, () => {
+app.listen(config.PORT, async () => {
     console.log(`🚀 SMS Gateway Middleware running on port ${config.PORT}`);
     console.log(`👉 Health check: http://localhost:${config.PORT}/health`);
 
-    // Proactive OAuth token refresh — runs every 12 hours so tokens never
-    // expire during periods of inactivity (e.g. weekends, holidays).
-    // Also runs immediately on boot to rescue any tokens that expired during downtime.
+    // Proactive OAuth token refresh
     const { startTokenRefreshJob } = require('./services/tokenRefreshJob');
     startTokenRefreshJob();
-});
 
+    // ── WhatsApp Baileys: Register Global Inbound Message Handler ──────────────
+    // When a WhatsApp message is received, push it into GHL as an inbound message.
+    const wa = require('./services/whatsappBailey');
+    const whatsappDB = require('./db/whatsappQueries');
+    const ghlService = require('./services/ghl');
+    const db = require('./db/queries');
+
+    wa.setMessageHandler(async (instanceId, fromNumber, body) => {
+        try {
+            const tenant = await whatsappDB.getWhatsappTenantByInstanceId(instanceId);
+            if (!tenant) return;
+            await db.logMessage({
+                tenant_id: tenant.id,
+                direction: 'inbound',
+                from_number: fromNumber,
+                to_number: tenant.whatsapp_phone_number,
+                body,
+                status: 'received'
+            });
+            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'WhatsApp');
+            console.log(`[WhatsApp] Forwarded inbound ${fromNumber} → GHL for ${tenant.business_name}`);
+        } catch (e) {
+            console.error('[WhatsApp] Inbound handler error:', e.message);
+        }
+    });
+
+    // ── Restore active WhatsApp sessions on boot ───────────────────────────────
+    // Any number that was connected before a redeploy will automatically reconnect.
+    try {
+        const activeTenants = await whatsappDB.getAllWhatsappTenants();
+        for (const tenant of activeTenants) {
+            if (tenant.is_active && tenant.whatsapp_instance_id) {
+                console.log(`[WhatsApp] Restoring session: ${tenant.whatsapp_instance_id}`);
+                wa.startSession(tenant.whatsapp_instance_id, {
+                    onConnected: (phone) => console.log(`[WhatsApp] ✅ Restored: ${tenant.business_name} (${phone})`),
+                    onDisconnected: () => console.log(`[WhatsApp] ❌ Disconnected: ${tenant.whatsapp_instance_id}`)
+                }).catch(() => {}); // Non-blocking — will prompt re-scan if auth files gone
+            }
+        }
+    } catch (e) {
+        console.error('[WhatsApp] Session restore error:', e.message);
+    }
+});

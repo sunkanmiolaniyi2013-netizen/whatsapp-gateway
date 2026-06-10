@@ -17,6 +17,10 @@ const sessions = {};
 // Callbacks waiting for QR
 const qrWaiters = {};
 
+// Global inbound message handler (set by the app on startup)
+let _globalMessageHandler = null;
+function setMessageHandler(fn) { _globalMessageHandler = fn; }
+
 // Where to store auth files (Railway ephemeral FS - sessions persist until redeploy)
 const AUTH_DIR = path.join(process.cwd(), '.wa_sessions');
 if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
@@ -103,11 +107,24 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
         }
     });
 
-    // Forward incoming messages to webhook handler
+    // Forward incoming messages to the global handler (which pushes to GHL)
     sock.ev.on('messages.upsert', ({ messages, type }) => {
-        if (type === 'notify' && onMessage) {
+        if (type === 'notify') {
             messages.forEach(msg => {
-                if (!msg.key.fromMe) onMessage(msg);
+                if (msg.key.fromMe) return;
+                const fromJid = msg.key.remoteJid || '';
+                const fromNumber = '+' + fromJid.split('@')[0];
+                const body = msg.message?.conversation ||
+                             msg.message?.extendedTextMessage?.text ||
+                             '*(Media/Unsupported)*';
+
+                console.log(`[Baileys] 📨 Inbound from ${fromNumber} on ${instanceId}`);
+                if (_globalMessageHandler) {
+                    _globalMessageHandler(instanceId, fromNumber, body).catch(e =>
+                        console.error('[Baileys] Message handler error:', e.message)
+                    );
+                }
+                if (onMessage) onMessage(msg);
             });
         }
     });
@@ -186,4 +203,4 @@ function listSessions() {
     }));
 }
 
-module.exports = { startSession, getQR, getStatus, getPhone, sendMessage, deleteSession, listSessions };
+module.exports = { startSession, getQR, getStatus, getPhone, sendMessage, deleteSession, listSessions, setMessageHandler };
