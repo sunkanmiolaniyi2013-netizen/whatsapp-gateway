@@ -17,7 +17,7 @@ router.post('/provider/send-message', async (req, res) => {
         const body = payload.message;
         const messageId = payload.messageId;
 
-        if (!locationId || !toNumber || !body) {
+        if (!locationId || !toNumber || (!body && (!payload.attachments || payload.attachments.length === 0))) {
             return res.status(400).json({ success: false, message: 'Missing fields' });
         }
 
