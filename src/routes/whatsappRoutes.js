@@ -27,7 +27,26 @@ router.post('/provider/send-message', async (req, res) => {
         if (!tenants || tenants.length === 0) {
             return res.status(404).json({ success: false, message: 'No active WhatsApp tenant found for this location' });
         }
-        const tenant = tenants[0];
+        // ── STICKY ROUTING & LOAD BALANCING ──
+        let tenant = null;
+
+        // 1. Check if this prospect has a sticky connection to a specific instance
+        const tracked = convoTracker.lookupInbound(toNumber, null);
+        if (tracked && tracked.instanceId) {
+            // Find the tenant that matches the sticky instance
+            tenant = tenants.find(t => t.whatsapp_instance_id === tracked.instanceId);
+            if (tenant) {
+                console.log(`[Sticky Routing] Prospect ${toNumber} stuck to instance ${tenant.whatsapp_instance_id}`);
+            }
+        }
+
+        // 2. If no sticky connection, or the sticky tenant is inactive, pick randomly (Load Balancing)
+        if (!tenant) {
+            const randomIndex = Math.floor(Math.random() * tenants.length);
+            tenant = tenants[randomIndex];
+            console.log(`[Round Robin] New prospect ${toNumber}, selected instance ${tenant.whatsapp_instance_id}`);
+        }
+
         const instanceId = tenant.whatsapp_instance_id;
 
         // Ensure the Baileys session is running for this instance
@@ -147,19 +166,27 @@ router.get('/setup/status', async (req, res) => {
         // Verify if tenant exists
         const tenants = await whatsappDB.getWhatsappTenantsByLocationId(location_id);
         if (!tenants || tenants.length === 0) {
-            return res.status(404).json({ error: 'No setup found' });
+            return res.json({ devices: [] });
         }
 
-        const tenant = tenants[0];
-        const status = wa.getStatus(tenant.whatsapp_instance_id);
-        const phone = wa.getPhone(tenant.whatsapp_instance_id);
-        
-        let qr = null;
-        if (status !== 'open') {
-            qr = await wa.getQR(tenant.whatsapp_instance_id);
+        const devices = [];
+        for (const tenant of tenants) {
+            const status = wa.getStatus(tenant.whatsapp_instance_id);
+            const phone = wa.getPhone(tenant.whatsapp_instance_id);
+            let qr = null;
+            if (status !== 'open') {
+                qr = await wa.getQR(tenant.whatsapp_instance_id);
+            }
+            devices.push({
+                id: tenant.id,
+                instance_id: tenant.whatsapp_instance_id,
+                status: qr ? 'qr' : status,
+                phone: phone || tenant.whatsapp_phone_number,
+                qr
+            });
         }
 
-        res.json({ status: qr ? 'qr' : status, phone, qr });
+        res.json({ devices });
     } catch (error) {
         console.error('[WhatsApp Setup] Status Error:', error);
         res.status(500).json({ error: error.message });
@@ -169,13 +196,12 @@ router.get('/setup/status', async (req, res) => {
 // Start session / Generate QR
 router.post('/setup/start', async (req, res) => {
     try {
-        const { location_id } = req.body;
+        const { location_id, forceNew, instance_id } = req.body;
         if (!location_id) return res.status(400).json({ error: 'Missing location_id' });
 
         // We check if OAuth tokens exist for this location to verify they are a valid user
         let oauthTenant;
         try {
-            // This throws if no valid token / location exists in the system
             await ghlService.getValidAccessToken({ ghl_location_id: location_id });
             oauthTenant = true;
         } catch (e) {
@@ -187,10 +213,14 @@ router.post('/setup/start', async (req, res) => {
         let tenants = await whatsappDB.getWhatsappTenantsByLocationId(location_id);
         let tenant;
         
-        if (!tenants || tenants.length === 0) {
+        if (instance_id) {
+            // Reconnect specific instance
+            tenant = tenants.find(t => t.whatsapp_instance_id === instance_id);
+            if (!tenant) return res.status(404).json({ error: 'Instance not found' });
+        } else if (forceNew || !tenants || tenants.length === 0) {
             // Auto-create tenant placeholder
             tenant = await whatsappDB.addWhatsappTenant({
-                business_name: `Location ${location_id}`,
+                business_name: `Location ${location_id} (Num ${tenants ? tenants.length + 1 : 1})`,
                 ghl_location_id: location_id,
                 whatsapp_phone_number: 'pending', // Will update when connected
                 whatsapp_instance_id: instance_name,
@@ -198,8 +228,8 @@ router.post('/setup/start', async (req, res) => {
                 whatsapp_base_url: 'built-in'
             });
         } else {
+            // Default to first tenant if nothing specified (for backwards compatibility)
             tenant = tenants[0];
-            // Start the existing instance
         }
 
         const instanceToStart = tenant.whatsapp_instance_id;
