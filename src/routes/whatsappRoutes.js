@@ -16,9 +16,10 @@ router.post('/provider/send-message', async (req, res) => {
         const toNumber = payload.phone;
         const body = payload.message;
         const messageId = payload.messageId;
+        console.log('[WhatsApp Route] Outbound Payload received:', JSON.stringify(payload, null, 2));
 
-        if (!locationId || !toNumber || (!body && (!payload.attachments || payload.attachments.length === 0))) {
-            return res.status(400).json({ success: false, message: 'Missing fields' });
+        if (!locationId || !toNumber) {
+            return res.status(400).json({ success: false, message: 'Missing locationId or phone' });
         }
 
         // Find active WhatsApp tenant for this GHL location
