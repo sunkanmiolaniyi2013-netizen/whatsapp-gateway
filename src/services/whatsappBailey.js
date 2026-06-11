@@ -116,6 +116,9 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                 if (msg.key.fromMe) continue;
                 const fromJid = msg.key.remoteJid || '';
                 if (fromJid.endsWith('@g.us')) continue; // Skip group messages
+                if (fromJid === 'status@broadcast') continue; // Skip status updates (Stories)
+                if (fromJid.endsWith('@broadcast')) continue; // Skip other broadcasts
+                
                 const fromNumber = '+' + fromJid.split('@')[0];
 
                 // Extract text body
