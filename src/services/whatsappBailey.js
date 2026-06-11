@@ -163,11 +163,8 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                             console.log(`[Baileys] ✅ Media saved locally and accessible at: ${mediaUrl}`);
                         }
                         
-                        const mediaLabel = detectedType.replace('Message', '');
-                        if (!body) {
-                            body = mediaUrl ? `📎 ${mediaLabel}\n\n${mediaUrl}` : `📎 ${mediaLabel}`;
-                        } else if (mediaUrl) {
-                            body = `${body}\n\n📎 View attached ${mediaLabel}:\n${mediaUrl}`;
+                        if (!mediaUrl && !body) {
+                            body = `📎 ${detectedType.replace('Message', '')}`;
                         }
                     } catch (mediaErr) {
                         console.error(`[Baileys] Media download failed (non-fatal):`, mediaErr.message);
