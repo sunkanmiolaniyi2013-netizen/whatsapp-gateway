@@ -27,24 +27,48 @@ router.post('/provider/send-message', async (req, res) => {
         if (!tenants || tenants.length === 0) {
             return res.status(404).json({ success: false, message: 'No active WhatsApp tenant found for this location' });
         }
-        // ── STICKY ROUTING & LOAD BALANCING ──
+        // ── ASSIGNED USER ROUTING ──
         let tenant = null;
 
-        // 1. Check if this prospect has a sticky connection to a specific instance
-        const tracked = convoTracker.lookupInbound(toNumber, null);
-        if (tracked && tracked.instanceId) {
-            // Find the tenant that matches the sticky instance
-            tenant = tenants.find(t => t.whatsapp_instance_id === tracked.instanceId);
-            if (tenant) {
-                console.log(`[Sticky Routing] Prospect ${toNumber} stuck to instance ${tenant.whatsapp_instance_id}`);
+        try {
+            // Check if contact has an assigned user
+            const token = await ghlService.getValidAccessToken({ ghl_location_id: locationId });
+            const contact = await ghlService.findContactByPhone(token, locationId, toNumber);
+            
+            if (contact && contact.assignedTo) {
+                // Find a WhatsApp tenant assigned to this specific GHL user
+                const assignedTenant = tenants.find(t => t.ghl_assigned_user_id === contact.assignedTo);
+                if (assignedTenant) {
+                    tenant = assignedTenant;
+                    console.log(`[Assigned Routing] Prospect ${toNumber} is assigned to user ${contact.assignedTo}. Selected instance ${tenant.whatsapp_instance_id}`);
+                }
             }
+        } catch (e) {
+            console.error(`[Assigned Routing Error] Failed to fetch contact assignment: ${e.message}`);
         }
 
-        // 2. If no sticky connection, or the sticky tenant is inactive, pick randomly (Load Balancing)
+        // ── STICKY ROUTING & LOAD BALANCING (Fallback) ──
         if (!tenant) {
-            const randomIndex = Math.floor(Math.random() * tenants.length);
-            tenant = tenants[randomIndex];
-            console.log(`[Round Robin] New prospect ${toNumber}, selected instance ${tenant.whatsapp_instance_id}`);
+            // 1. Check if this prospect has a sticky connection to a specific instance
+            const tracked = convoTracker.lookupInbound(toNumber, null);
+            if (tracked && tracked.instanceId) {
+                const stickyTenant = tenants.find(t => t.whatsapp_instance_id === tracked.instanceId);
+                if (stickyTenant) {
+                    tenant = stickyTenant;
+                    console.log(`[Sticky Routing] Prospect ${toNumber} stuck to instance ${tenant.whatsapp_instance_id}`);
+                }
+            }
+
+            // 2. If no sticky connection, pick a generic/unassigned tenant if possible, else random
+            if (!tenant) {
+                // Prefer tenants that are NOT assigned to specific users for generic load balancing
+                const genericTenants = tenants.filter(t => !t.ghl_assigned_user_id);
+                const pool = genericTenants.length > 0 ? genericTenants : tenants;
+                
+                const randomIndex = Math.floor(Math.random() * pool.length);
+                tenant = pool[randomIndex];
+                console.log(`[Round Robin] New prospect ${toNumber}, selected instance ${tenant.whatsapp_instance_id}`);
+            }
         }
 
         const instanceId = tenant.whatsapp_instance_id;
@@ -255,6 +279,34 @@ router.post('/setup/start', async (req, res) => {
         res.json({ status: wa.getStatus(instanceToStart), phone: wa.getPhone(instanceToStart) });
     } catch (error) {
         console.error('[WhatsApp Setup] Start Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get GHL Users for assigning
+router.get('/setup/users', async (req, res) => {
+    try {
+        const { location_id } = req.query;
+        if (!location_id) return res.status(400).json({ error: 'Missing location_id' });
+        
+        const users = await ghlService.getUsers(location_id);
+        res.json({ users });
+    } catch (error) {
+        console.error('[WhatsApp Setup] Get Users Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Assign a WhatsApp Tenant to a specific GHL User
+router.put('/setup/assign', async (req, res) => {
+    try {
+        const { instance_id, user_id } = req.body;
+        if (!instance_id) return res.status(400).json({ error: 'Missing instance_id' });
+        
+        await whatsappDB.assignWhatsappTenantUser(instance_id, user_id);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[WhatsApp Setup] Assign User Error:', error);
         res.status(500).json({ error: error.message });
     }
 });

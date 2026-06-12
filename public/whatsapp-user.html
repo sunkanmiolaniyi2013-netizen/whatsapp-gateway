@@ -132,12 +132,46 @@
     let pollInterval = null;
     let activeInstanceId = null;
 
+    let ghlUsers = [];
+
     if (!locationId) {
         showError("Invalid access: Missing location_id.");
         document.getElementById('addDeviceBtn').style.display = 'none';
     } else {
-        checkCurrentStatus();
-        startPolling();
+        fetchUsers().then(() => {
+            checkCurrentStatus();
+            startPolling();
+        });
+    }
+
+    async function fetchUsers() {
+        try {
+            const res = await fetch(`/whatsapp/setup/users?location_id=${locationId}`);
+            if (res.ok) {
+                const data = await res.json();
+                ghlUsers = data.users || [];
+            }
+        } catch (e) {
+            console.error("Failed to load users for dropdown:", e);
+        }
+    }
+
+    async function assignUser(instanceId, selectElement) {
+        const userId = selectElement.value;
+        selectElement.disabled = true;
+        try {
+            await fetch('/whatsapp/setup/assign', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instance_id: instanceId, user_id: userId })
+            });
+            selectElement.style.borderColor = 'var(--accent)';
+            setTimeout(() => selectElement.style.borderColor = 'var(--border)', 1500);
+        } catch (e) {
+            showError("Failed to assign user.");
+        } finally {
+            selectElement.disabled = false;
+        }
     }
 
     function showError(msg) {
@@ -181,23 +215,41 @@
                 activeInstanceId = null;
             }
 
+            // Build User Dropdown Options
+            let optionsHtml = `<option value="">Generic (Load Balanced)</option>`;
+            ghlUsers.forEach(u => {
+                const isSelected = dev.ghl_assigned_user_id === u.id ? 'selected' : '';
+                optionsHtml += `<option value="${u.id}" ${isSelected}>${u.name || u.firstName + ' ' + u.lastName}</option>`;
+            });
+
             const card = document.createElement('div');
             card.className = 'device-card';
+            card.style.flexDirection = 'column';
+            card.style.alignItems = 'stretch';
+            
             card.innerHTML = `
-                <div class="device-info">
-                    <div class="device-icon">
-                        <svg viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.1.824zm-3.423-14.416c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm.029 18.88c-1.161 0-2.305-.292-3.318-.844l-3.677.964.984-3.595c-.607-1.052-.927-2.246-.926-3.468.001-3.825 3.113-6.937 6.937-6.937 1.856.001 3.598.723 4.907 2.034 1.31 1.311 2.031 3.054 2.03 4.908-.001 3.825-3.113 6.938-6.937 6.938z"/></svg>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                    <div class="device-info">
+                        <div class="device-icon">
+                            <svg viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.1.824zm-3.423-14.416c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm.029 18.88c-1.161 0-2.305-.292-3.318-.844l-3.677.964.984-3.595c-.607-1.052-.927-2.246-.926-3.468.001-3.825 3.113-6.937 6.937-6.937 1.856.001 3.598.723 4.907 2.034 1.31 1.311 2.031 3.054 2.03 4.908-.001 3.825-3.113 6.938-6.937 6.938z"/></svg>
+                        </div>
+                        <div class="device-details">
+                            <strong>WhatsApp Number ${index + 1}</strong>
+                            <span>${dev.phone === 'pending' ? 'Not scanned yet' : dev.phone}</span>
+                        </div>
                     </div>
-                    <div class="device-details">
-                        <strong>WhatsApp Number ${index + 1}</strong>
-                        <span>${dev.phone === 'pending' ? 'Not scanned yet' : dev.phone}</span>
+                    <div>
+                        <span class="device-status status-${dev.status === 'open' ? 'open' : (dev.status === 'qr' ? 'qr' : 'disconnected')}">
+                            ${dev.status === 'open' ? 'Connected' : (dev.status === 'qr' ? 'Waiting QR' : 'Disconnected')}
+                        </span>
+                        ${dev.status !== 'open' ? `<button onclick="initializeConnection(false, '${dev.instance_id}')" style="margin-top:8px; font-size:11px; padding:4px 8px; cursor:pointer;">Scan</button>` : ''}
                     </div>
                 </div>
-                <div>
-                    <span class="device-status status-${dev.status === 'open' ? 'open' : (dev.status === 'qr' ? 'qr' : 'disconnected')}">
-                        ${dev.status === 'open' ? 'Connected' : (dev.status === 'qr' ? 'Waiting QR' : 'Disconnected')}
-                    </span>
-                    ${dev.status !== 'open' ? `<button onclick="initializeConnection(false, '${dev.instance_id}')" style="margin-top:8px; font-size:11px; padding:4px 8px; cursor:pointer;">Scan</button>` : ''}
+                <div style="background: var(--surface); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+                    <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">Assign to GHL Staff Member:</label>
+                    <select onchange="assignUser('${dev.instance_id}', this)" style="width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; font-family:inherit; font-size:13px; outline:none; transition: border-color 0.2s;">
+                        ${optionsHtml}
+                    </select>
                 </div>
             `;
             list.appendChild(card);

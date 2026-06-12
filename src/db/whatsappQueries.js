@@ -54,6 +54,16 @@ async function updateWhatsappTenantPhone(instanceId, phone) {
     return data ? data[0] : null;
 }
 
+async function assignWhatsappTenantUser(instanceId, userId) {
+    const { data, error } = await supabase
+        .from('whatsapp_tenants')
+        .update({ ghl_assigned_user_id: userId || null })
+        .eq('whatsapp_instance_id', instanceId)
+        .select();
+    if (error) console.error('Error updating assigned user:', error);
+    return data ? data[0] : null;
+}
+
 async function updateWhatsappTenantOAuthTokens(locationId, accessToken, refreshToken, expiresIn) {
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
     const { data, error } = await supabase
@@ -101,5 +111,6 @@ module.exports = {
     updateWhatsappTenantPhone,
     updateWhatsappTenantOAuthTokens,
     deleteWhatsappTenant,
-    updateWhatsappTenant
+    updateWhatsappTenant,
+    assignWhatsappTenantUser
 };

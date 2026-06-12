@@ -185,7 +185,7 @@ async function findContactByPhone(token, locationId, rawPhone) {
             if (searchRes.data?.contacts?.length > 0) {
                 const contact = searchRes.data.contacts[0];
                 console.log(`[GHL] ✅ Contact FOUND: "${contact.firstName || ''} ${contact.lastName || ''}" (${contact.id}) via query="${query}"`);
-                return contact.id;
+                return contact;
             }
         } catch (e) {
             console.error(`[GHL] Search error for query="${query}":`, e?.response?.data || e.message);
@@ -227,7 +227,8 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
         // ── Step 2: If no tracker match, search GHL contacts by phone ─────────
         if (!contactId) {
             console.log(`[GHL] No tracker match. Searching GHL contacts for ${from_number}...`);
-            contactId = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+            const contact = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+            contactId = contact ? contact.id : null;
         }
 
         // ── Step 3: Only create a new contact as absolute last resort ─────────
@@ -313,7 +314,32 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
     }
 }
 
+/**
+ * Fetch all users for a given location.
+ */
+async function getUsers(locationId) {
+    try {
+        const token = await getValidAccessToken({ ghl_location_id: locationId });
+        const response = await axios.get(
+            `https://services.leadconnectorhq.com/users/?locationId=${locationId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Version': '2021-07-28',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+        return response.data.users || [];
+    } catch (error) {
+        console.error('[GHL] Error fetching users:', error?.response?.data || error.message);
+        throw error;
+    }
+}
+
 module.exports = {
     pushInboundMessageToGHL,
-    getValidAccessToken
+    getValidAccessToken,
+    findContactByPhone,
+    getUsers
 };
