@@ -206,7 +206,8 @@ router.get('/setup/status', async (req, res) => {
                 instance_id: tenant.whatsapp_instance_id,
                 status: qr ? 'qr' : status,
                 phone: phone || tenant.whatsapp_phone_number,
-                qr
+                qr,
+                ghl_assigned_user_id: tenant.ghl_assigned_user_id
             });
         }
 
