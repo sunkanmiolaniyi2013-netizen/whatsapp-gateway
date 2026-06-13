@@ -89,18 +89,6 @@ function lookupInbound(fromNumber, instanceId) {
     return null;
 }
 
-/**
- * Clear a stale phone entry (e.g. when the GHL contact was deleted).
- * This allows the inbound flow to re-create the contact on retry.
- */
-function clearPhone(fromNumber) {
-    const key = normalize(fromNumber);
-    if (key && phoneMap.has(key)) {
-        console.log(`[ConvoTracker] 🗑️ Clearing stale entry for phone=${key}`);
-        phoneMap.delete(key);
-    }
-}
-
 function getStats() {
     return { 
         phoneEntries: phoneMap.size,
@@ -109,4 +97,4 @@ function getStats() {
     };
 }
 
-module.exports = { trackOutbound, lookupInbound, clearPhone, normalize, getStats };
+module.exports = { trackOutbound, lookupInbound, normalize, getStats };

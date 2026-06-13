@@ -290,26 +290,11 @@ router.get('/setup/users', async (req, res) => {
         const { location_id } = req.query;
         if (!location_id) return res.status(400).json({ error: 'Missing location_id' });
         
-        console.log(`[WhatsApp Setup] Fetching GHL users for location: ${location_id}`);
         const users = await ghlService.getUsers(location_id);
-        console.log(`[WhatsApp Setup] Got ${users.length} users for location ${location_id}`);
         res.json({ users });
     } catch (error) {
-        const ghlError = error?.response?.data;
-        const statusCode = error?.response?.status;
-        console.error(`[WhatsApp Setup] Get Users Error (HTTP ${statusCode || 'N/A'}):`, ghlError || error.message);
-        
-        // Give the user a helpful error message they can actually act on
-        let userMsg = error.message;
-        if (statusCode === 401) {
-            userMsg = 'OAuth token expired or invalid. Try re-authorizing the app in GHL Marketplace.';
-        } else if (statusCode === 403) {
-            userMsg = 'Missing permissions. The GHL app may need the "users.readonly" scope.';
-        } else if (error.message.includes('no PIT key') || error.message.includes('no valid OAuth')) {
-            userMsg = 'No valid API token found for this location. Add a PIT key or re-authorize OAuth.';
-        }
-        
-        res.status(500).json({ error: userMsg });
+        console.error('[WhatsApp Setup] Get Users Error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

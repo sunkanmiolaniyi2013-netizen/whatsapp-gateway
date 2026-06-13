@@ -150,18 +150,9 @@
             if (res.ok) {
                 const data = await res.json();
                 ghlUsers = data.users || [];
-                if (ghlUsers.length === 0) {
-                    console.warn('[Users] API returned 0 users — staff dropdown will be empty.');
-                }
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                const errMsg = errData.error || `HTTP ${res.status}`;
-                console.error('[Users] Failed to load staff:', errMsg);
-                showError(`⚠️ Staff list failed to load: ${errMsg}. Dropdown will only show "Generic". `);
             }
         } catch (e) {
             console.error("Failed to load users for dropdown:", e);
-            showError(`⚠️ Could not reach server for staff list. Dropdown will only show "Generic".`);
         }
     }
 
