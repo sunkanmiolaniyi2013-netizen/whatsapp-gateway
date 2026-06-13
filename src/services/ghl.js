@@ -383,12 +383,35 @@ async function _createGHLContact(token, locationId, phone) {
 
 /**
  * Fetch all users for a given location.
+ * GHL deprecated GET /users/?locationId=... — now requires GET /users/search with companyId.
+ * We first fetch the location to get companyId, then search users.
  */
 async function getUsers(locationId) {
     try {
         const token = await getValidAccessToken({ ghl_location_id: locationId });
+
+        // Step 1: Get the companyId from the location
+        console.log(`[GHL] Fetching companyId for location ${locationId}...`);
+        const locationRes = await axios.get(
+            `https://services.leadconnectorhq.com/locations/${locationId}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Version': '2021-07-28',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+        const companyId = locationRes.data?.location?.companyId;
+        if (!companyId) {
+            console.error('[GHL] Could not get companyId from location response:', locationRes.data);
+            throw new Error('Could not determine companyId for this location');
+        }
+        console.log(`[GHL] Got companyId: ${companyId}`);
+
+        // Step 2: Search users with companyId + locationId
         const response = await axios.get(
-            `https://services.leadconnectorhq.com/users/?locationId=${locationId}`,
+            `https://services.leadconnectorhq.com/users/search?companyId=${companyId}&locationId=${locationId}`,
             {
                 headers: {
                     'Authorization': `Bearer ${token}`,
