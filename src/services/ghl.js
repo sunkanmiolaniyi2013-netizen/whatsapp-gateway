@@ -215,12 +215,14 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         let contactId = null;
         let conversationId = null;
+        let usedTrackerData = false;
 
         // ── Step 1: Check conversation tracker (by phone AND by instance) ─────
         const tracked = convoTracker.lookupInbound(from_number, instanceId);
         if (tracked) {
             contactId = tracked.contactId;
             conversationId = tracked.conversationId;
+            usedTrackerData = true;
             console.log(`[GHL] ✅ Conversation tracker matched! contactId=${contactId}, convId=${conversationId}`);
         }
 
@@ -233,38 +235,7 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         // ── Step 3: Only create a new contact as absolute last resort ─────────
         if (!contactId) {
-            console.log(`[GHL] No existing contact matched. Creating new contact for ${from_number}...`);
-            try {
-                const createRes = await axios.post(
-                    `https://services.leadconnectorhq.com/contacts/`,
-                    {
-                        locationId: tenant.ghl_location_id,
-                        phone: from_number,
-                        firstName: 'WhatsApp',
-                        lastName: from_number
-                    },
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Version': '2021-07-28',
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        }
-                    }
-                );
-                if (createRes.data?.contact?.id) {
-                    contactId = createRes.data.contact.id;
-                    console.log(`[GHL] Created new contact: ${contactId}`);
-                }
-            } catch (createErr) {
-                // If creation fails with "duplicate", the contact already exists — try to extract the ID
-                const errData = createErr?.response?.data;
-                console.error('[GHL] Contact creation error:', errData || createErr.message);
-                if (errData?.meta?.contactId) {
-                    contactId = errData.meta.contactId;
-                    console.log(`[GHL] Recovered duplicate contactId from error response: ${contactId}`);
-                }
-            }
+            contactId = await _createGHLContact(token, tenant.ghl_location_id, from_number);
         }
 
         // ── Step 4: Push the inbound message ──────────────────────────────────
@@ -294,24 +265,120 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         console.log(`[GHL] Posting inbound message:`, JSON.stringify(payload));
 
-        const response = await axios.post(
-            'https://services.leadconnectorhq.com/conversations/messages/inbound',
-            payload,
+        try {
+            const response = await axios.post(
+                'https://services.leadconnectorhq.com/conversations/messages/inbound',
+                payload,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Version': '2021-04-15',
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                }
+            );
+            return response.data;
+        } catch (pushErr) {
+            const status = pushErr?.response?.status;
+            const errBody = pushErr?.response?.data;
+
+            // ── RETRY: If push failed and we used stale tracker data, the contact
+            //    was likely deleted from GHL. Clear tracker, re-search/create, retry.
+            if (usedTrackerData && (status === 400 || status === 404 || status === 422)) {
+                console.log(`[GHL] ⚠️ Push failed (HTTP ${status}) with stale tracker data. Clearing cache and retrying...`);
+                console.log(`[GHL] Error detail:`, JSON.stringify(errBody));
+
+                // Clear the stale tracker entry so future messages go through clean
+                convoTracker.clearPhone(from_number);
+
+                // Re-search for the contact (maybe it was re-created with a new ID)
+                let freshContactId = null;
+                const freshContact = await findContactByPhone(token, tenant.ghl_location_id, from_number);
+                if (freshContact) {
+                    freshContactId = freshContact.id;
+                    console.log(`[GHL] Found existing contact on retry: ${freshContactId}`);
+                } else {
+                    // Create brand-new contact
+                    freshContactId = await _createGHLContact(token, tenant.ghl_location_id, from_number);
+                }
+
+                // Build clean payload without stale conversationId
+                const retryPayload = {
+                    type: channelType,
+                    message: body,
+                    to: to_number,
+                    from: from_number
+                };
+                if (freshContactId) retryPayload.contactId = freshContactId;
+                if (mediaUrl) retryPayload.attachments = [mediaUrl];
+
+                console.log(`[GHL] Retrying inbound push:`, JSON.stringify(retryPayload));
+
+                const retryRes = await axios.post(
+                    'https://services.leadconnectorhq.com/conversations/messages/inbound',
+                    retryPayload,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Version': '2021-04-15',
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+
+                console.log(`[GHL] ✅ Retry succeeded! Message delivered for ${from_number}`);
+                return retryRes.data;
+            }
+
+            // Not a stale-data issue — rethrow original error
+            throw pushErr;
+        }
+    } catch (error) {
+        console.error('Error posting inbound message to GHL:', error?.response?.data || error.message);
+        throw error;
+    }
+}
+
+/**
+ * Helper: Create a new contact in GHL.
+ * Returns the new contactId, or null if creation fails entirely.
+ */
+async function _createGHLContact(token, locationId, phone) {
+    console.log(`[GHL] Creating new contact for ${phone}...`);
+    try {
+        const createRes = await axios.post(
+            `https://services.leadconnectorhq.com/contacts/`,
+            {
+                locationId,
+                phone,
+                firstName: 'WhatsApp',
+                lastName: phone
+            },
             {
                 headers: {
                     'Authorization': `Bearer ${token}`,
-                    'Version': '2021-04-15',
+                    'Version': '2021-07-28',
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 }
             }
         );
-
-        return response.data;
-    } catch (error) {
-        console.error('Error posting inbound message to GHL:', error?.response?.data || error.message);
-        throw error;
+        if (createRes.data?.contact?.id) {
+            console.log(`[GHL] ✅ Created new contact: ${createRes.data.contact.id}`);
+            return createRes.data.contact.id;
+        }
+    } catch (createErr) {
+        // If creation fails with "duplicate", the contact already exists — extract the ID
+        const errData = createErr?.response?.data;
+        console.error('[GHL] Contact creation error:', errData || createErr.message);
+        if (errData?.meta?.contactId) {
+            console.log(`[GHL] Recovered duplicate contactId from error response: ${errData.meta.contactId}`);
+            return errData.meta.contactId;
+        }
     }
+    return null;
 }
 
 /**

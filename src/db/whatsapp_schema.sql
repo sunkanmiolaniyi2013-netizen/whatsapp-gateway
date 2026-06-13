@@ -17,7 +17,9 @@ CREATE TABLE public.whatsapp_tenants (
     whatsapp_api_key TEXT NOT NULL,
     whatsapp_base_url TEXT NOT NULL,
     
+    
     is_active BOOLEAN DEFAULT true,
+    ghl_assigned_user_id TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
