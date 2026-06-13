@@ -118,21 +118,28 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                 if (fromJid.endsWith('@g.us')) continue; // Skip group messages
                 if (fromJid === 'status@broadcast') continue; // Skip status updates (Stories)
                 if (fromJid.endsWith('@broadcast')) continue; // Skip other broadcasts
-                
-                const fromNumber = '+' + fromJid.split('@')[0];
 
-                // ── DEBUG: Capture full message metadata to diagnose LID vs phone number ──
-                console.log(`[Baileys DEBUG] ====== INBOUND MESSAGE ======`);
-                console.log(`[Baileys DEBUG] Full msg.key:`, JSON.stringify(msg.key));
-                console.log(`[Baileys DEBUG] pushName:`, msg.pushName || '(not available)');
-                console.log(`[Baileys DEBUG] remoteJid:`, msg.key.remoteJid || '(not available)');
-                console.log(`[Baileys DEBUG] remoteJidAlt:`, msg.key.remoteJidAlt || '(not available)');
-                console.log(`[Baileys DEBUG] senderPn:`, msg.key.senderPn || '(not available)');
-                console.log(`[Baileys DEBUG] participant:`, msg.key.participant || '(not available)');
-                console.log(`[Baileys DEBUG] participantAlt:`, msg.key.participantAlt || '(not available)');
-                console.log(`[Baileys DEBUG] Extracted fromNumber:`, fromNumber);
-                console.log(`[Baileys DEBUG] Is LID?:`, fromJid.endsWith('@lid'));
-                console.log(`[Baileys DEBUG] ============================`);
+                // ── LID Resolution: Extract real phone number ─────────────────
+                // WhatsApp now sends anonymous LIDs (e.g. "108070621417525@lid")
+                // instead of phone-based JIDs. The real number is in remoteJidAlt.
+                let fromNumber;
+                const isLid = fromJid.endsWith('@lid');
+
+                if (isLid && msg.key.remoteJidAlt) {
+                    // remoteJidAlt contains the real phone JID: "33664456032@s.whatsapp.net"
+                    fromNumber = '+' + msg.key.remoteJidAlt.split('@')[0];
+                    console.log(`[Baileys] LID resolved: ${fromJid} → ${fromNumber} (via remoteJidAlt)`);
+                } else if (isLid) {
+                    // LID with no alt — log warning, use LID as fallback
+                    fromNumber = '+' + fromJid.split('@')[0];
+                    console.warn(`[Baileys] ⚠️ LID received with NO remoteJidAlt — cannot resolve real phone number. Using LID as fallback: ${fromNumber}`);
+                } else {
+                    // Classic phone-based JID: "33664456032@s.whatsapp.net"
+                    fromNumber = '+' + fromJid.split('@')[0];
+                }
+
+                // Extract sender's WhatsApp display name
+                const pushName = msg.pushName || null;
 
                 // Extract text body
                 let body = msg.message?.conversation ||
@@ -190,9 +197,9 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
 
                 if (!body && !mediaUrl) continue;
 
-                console.log(`[Baileys] 📨 Inbound from ${fromNumber} on ${instanceId}${mediaUrl ? ' [+media]' : ''}`);
+                console.log(`[Baileys] 📨 Inbound from ${fromNumber}${pushName ? ` (${pushName})` : ''} on ${instanceId}${mediaUrl ? ' [+media]' : ''}`);
                 if (_globalMessageHandler) {
-                    _globalMessageHandler(instanceId, fromNumber, body, mediaUrl).catch(e =>
+                    _globalMessageHandler(instanceId, fromNumber, body, mediaUrl, pushName).catch(e =>
                         console.error('[Baileys] Message handler error:', e.message)
                     );
                 }

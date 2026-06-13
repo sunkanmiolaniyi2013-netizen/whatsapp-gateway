@@ -59,7 +59,7 @@ app.listen(config.PORT, async () => {
     const ghlService = require('./services/ghl');
     const db = require('./db/queries');
 
-    wa.setMessageHandler(async (instanceId, fromNumber, body, mediaUrl) => {
+    wa.setMessageHandler(async (instanceId, fromNumber, body, mediaUrl, pushName) => {
         let tenant = null;
         try {
             tenant = await whatsappDB.getWhatsappTenantByInstanceId(instanceId);
@@ -72,8 +72,8 @@ app.listen(config.PORT, async () => {
                 body,
                 status: 'received'
             });
-            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'SMS', instanceId, mediaUrl);
-            console.log(`[WhatsApp] Forwarded inbound ${fromNumber} → GHL for ${tenant.business_name}${mediaUrl ? ' [+media]' : ''}`);
+            await ghlService.pushInboundMessageToGHL(tenant, fromNumber, body, 'SMS', instanceId, mediaUrl, pushName);
+            console.log(`[WhatsApp] Forwarded inbound ${fromNumber}${pushName ? ` (${pushName})` : ''} → GHL for ${tenant.business_name}${mediaUrl ? ' [+media]' : ''}`);
         } catch (e) {
             console.error('[WhatsApp] Inbound handler error:', e.message);
             await db.logMessage({

@@ -112,7 +112,27 @@ async function logMessage(msgData) {
             ghl_conversation_id,
             status
         }]);
-    if (error) console.error('Error logging message:', error);
+    if (error) {
+        // FK constraint violation (code 23503): tenant_id from whatsapp_tenants
+        // doesn't exist in the tenants table. Retry without tenant_id.
+        if (error.code === '23503') {
+            const { error: retryError } = await supabase
+                .from('messages')
+                .insert([{
+                    tenant_id: null,
+                    direction,
+                    from_number,
+                    to_number,
+                    body,
+                    ghl_contact_id,
+                    ghl_conversation_id,
+                    status
+                }]);
+            if (retryError) console.error('Error logging message (retry):', retryError);
+        } else {
+            console.error('Error logging message:', error);
+        }
+    }
 }
 
 async function logEvent(event, tenant_id = null, payload = null, errorStr = null) {
