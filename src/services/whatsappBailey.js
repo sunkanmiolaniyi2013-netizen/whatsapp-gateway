@@ -121,6 +121,19 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                 
                 const fromNumber = '+' + fromJid.split('@')[0];
 
+                // ── DEBUG: Capture full message metadata to diagnose LID vs phone number ──
+                console.log(`[Baileys DEBUG] ====== INBOUND MESSAGE ======`);
+                console.log(`[Baileys DEBUG] Full msg.key:`, JSON.stringify(msg.key));
+                console.log(`[Baileys DEBUG] pushName:`, msg.pushName || '(not available)');
+                console.log(`[Baileys DEBUG] remoteJid:`, msg.key.remoteJid || '(not available)');
+                console.log(`[Baileys DEBUG] remoteJidAlt:`, msg.key.remoteJidAlt || '(not available)');
+                console.log(`[Baileys DEBUG] senderPn:`, msg.key.senderPn || '(not available)');
+                console.log(`[Baileys DEBUG] participant:`, msg.key.participant || '(not available)');
+                console.log(`[Baileys DEBUG] participantAlt:`, msg.key.participantAlt || '(not available)');
+                console.log(`[Baileys DEBUG] Extracted fromNumber:`, fromNumber);
+                console.log(`[Baileys DEBUG] Is LID?:`, fromJid.endsWith('@lid'));
+                console.log(`[Baileys DEBUG] ============================`);
+
                 // Extract text body
                 let body = msg.message?.conversation ||
                            msg.message?.extendedTextMessage?.text ||
