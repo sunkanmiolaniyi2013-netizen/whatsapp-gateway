@@ -76,13 +76,10 @@ app.listen(config.PORT, async () => {
             console.log(`[WhatsApp] Forwarded inbound ${fromNumber}${pushName ? ` (${pushName})` : ''} → GHL for ${tenant.business_name}${mediaUrl ? ' [+media]' : ''}`);
         } catch (e) {
             console.error('[WhatsApp] Inbound handler error:', e.message);
-            await db.logMessage({
-                tenant_id: tenant?.id || null,
-                direction: 'error',
-                from_number: 'SYSTEM',
-                to_number: 'GHL_API',
-                body: JSON.stringify(e?.response?.data || e.message),
-                status: 'failed'
+            await db.logEvent('whatsapp_inbound_error', null, {
+                from_number: fromNumber,
+                instance_id: instanceId,
+                error: e?.response?.data || e.message
             });
         }
     });

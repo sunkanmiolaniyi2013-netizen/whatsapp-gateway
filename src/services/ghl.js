@@ -294,20 +294,58 @@ async function pushInboundMessageToGHL(tenant, fromNumber, body, channelType = '
 
         console.log(`[GHL] Posting inbound message:`, JSON.stringify(payload));
 
-        const response = await axios.post(
-            'https://services.leadconnectorhq.com/conversations/messages/inbound',
-            payload,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Version': '2021-04-15',
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+        try {
+            const response = await axios.post(
+                'https://services.leadconnectorhq.com/conversations/messages/inbound',
+                payload,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Version': '2021-04-15',
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
                 }
-            }
-        );
+            );
 
-        return response.data;
+            return response.data;
+        } catch (postError) {
+            const errMsg = postError?.response?.data?.message || '';
+
+            // ── Retry: Stale conversation (deleted in GHL) ──────────────────
+            // If the tracker pointed to a deleted conversation, clear it and
+            // retry without the conversationId so GHL creates a fresh one.
+            if (errMsg.includes('not found') || errMsg.includes('deleted')) {
+                console.warn(`[GHL] ⚠️ Stale conversation detected: "${errMsg}". Clearing tracker and retrying...`);
+
+                // Clear the stale entry from the conversation tracker
+                if (conversationId) {
+                    convoTracker.clearByPhone(from_number);
+                }
+
+                // Retry without conversationId
+                delete payload.conversationId;
+                console.log(`[GHL] Retrying inbound message (no conversationId):`, JSON.stringify(payload));
+
+                const retryResponse = await axios.post(
+                    'https://services.leadconnectorhq.com/conversations/messages/inbound',
+                    payload,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Version': '2021-04-15',
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+
+                return retryResponse.data;
+            }
+
+            // Not a stale conversation error — rethrow
+            throw postError;
+        }
     } catch (error) {
         console.error('Error posting inbound message to GHL:', error?.response?.data || error.message);
         throw error;

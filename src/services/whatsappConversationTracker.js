@@ -97,4 +97,17 @@ function getStats() {
     };
 }
 
-module.exports = { trackOutbound, lookupInbound, normalize, getStats };
+/**
+ * Clear a stale tracker entry by phone number.
+ * Called when GHL reports a conversation as deleted/not found.
+ */
+function clearByPhone(phone) {
+    const key = normalize(phone);
+    if (key && phoneMap.has(key)) {
+        const entry = phoneMap.get(key);
+        phoneMap.delete(key);
+        console.log(`[ConvoTracker] 🗑️ Cleared stale entry for phone=${key}, conv=${entry.conversationId}`);
+    }
+}
+
+module.exports = { trackOutbound, lookupInbound, clearByPhone, normalize, getStats };
