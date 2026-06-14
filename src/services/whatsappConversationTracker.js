@@ -57,13 +57,17 @@ function trackOutbound({ toNumber, contactId, conversationId, locationId, instan
 
 /**
  * Look up the correct GHL contact for an inbound reply.
- * Strategy 1: Match by phone number (the fast path).
- * Strategy 2: Match by instance ID — find the most recent outbound on this instance.
+ * Matches by phone number (normalized digits).
+ * 
+ * NOTE: We intentionally do NOT fall back to "last outbound on this instance"
+ * because multiple different people message the same WhatsApp number.
+ * That fallback caused cross-contamination (e.g., FXDTRADE's message
+ * landing in a French contact's conversation).
  */
 function lookupInbound(fromNumber, instanceId) {
     const key = normalize(fromNumber);
 
-    // ── Strategy 1: Phone match ──
+    // ── Phone match ──
     if (key) {
         const entry = phoneMap.get(key);
         if (entry && (Date.now() - entry.timestamp < EXPIRY_MS)) {
@@ -72,20 +76,7 @@ function lookupInbound(fromNumber, instanceId) {
         }
     }
 
-    // ── Strategy 2: Instance match (last outbound on this WhatsApp session) ──
-    if (instanceId && instanceMap.has(instanceId)) {
-        const list = instanceMap.get(instanceId);
-        // Find the most recent non-expired entry
-        for (let i = list.length - 1; i >= 0; i--) {
-            const entry = list[i];
-            if (Date.now() - entry.timestamp < EXPIRY_MS) {
-                console.log(`[ConvoTracker] ✅ Instance fallback: instance=${instanceId} → contact=${entry.contactId} (last outbound to ${entry.toPhone})`);
-                return entry;
-            }
-        }
-    }
-
-    console.log(`[ConvoTracker] ❌ No match for phone=${key}, instance=${instanceId}`);
+    console.log(`[ConvoTracker] ❌ No match for phone=${key}`);
     return null;
 }
 
