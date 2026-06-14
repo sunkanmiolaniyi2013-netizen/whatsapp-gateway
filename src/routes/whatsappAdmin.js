@@ -11,7 +11,9 @@ router.use(requireAdmin);
 
 router.get('/tenants', async (req, res) => {
     try {
-        const tenants = await whatsappDB.getAllWhatsappTenants();
+        const allTenants = await whatsappDB.getAllWhatsappTenants();
+        // Only return active tenants (soft-deleted ones are hidden but preserve OAuth tokens)
+        const tenants = allTenants.filter(t => t.is_active !== false);
         res.json(tenants);
     } catch (error) {
         console.error('Error fetching whatsapp tenants:', error);
@@ -46,6 +48,21 @@ router.post('/register', async (req, res) => {
 
 router.delete('/tenant/:id', async (req, res) => {
     try {
+        // Look up the tenant first to get its instance_id for session cleanup
+        const allTenants = await whatsappDB.getAllWhatsappTenants();
+        const tenant = allTenants.find(t => t.id === req.params.id);
+
+        // Disconnect the Baileys session so it disappears from memory immediately
+        if (tenant && tenant.whatsapp_instance_id) {
+            try {
+                await wa.deleteSession(tenant.whatsapp_instance_id);
+                console.log(`[WA Admin] Disconnected Baileys session: ${tenant.whatsapp_instance_id}`);
+            } catch (e) {
+                console.log(`[WA Admin] Session cleanup skipped (already gone): ${e.message}`);
+            }
+        }
+
+        // Soft-delete the tenant row (preserves OAuth tokens for future numbers)
         await whatsappDB.deleteWhatsappTenant(req.params.id);
         res.json({ success: true });
     } catch (error) {
