@@ -243,11 +243,22 @@ router.post('/setup/start', async (req, res) => {
             tenant = tenants.find(t => t.whatsapp_instance_id === instance_id);
             if (!tenant) return res.status(404).json({ error: 'Instance not found' });
         } else if (forceNew || !tenants || tenants.length === 0) {
-            // Auto-create tenant placeholder
+            // Clean up any stale 'pending' tenant rows for this location
+            // to avoid UNIQUE constraint violations on whatsapp_phone_number
+            if (tenants && tenants.length > 0) {
+                for (const t of tenants) {
+                    if (t.whatsapp_phone_number && t.whatsapp_phone_number.startsWith('pending')) {
+                        console.log(`[WhatsApp Setup] Cleaning up stale pending tenant: ${t.id}`);
+                        await whatsappDB.deleteWhatsappTenant(t.id);
+                    }
+                }
+            }
+
+            // Auto-create tenant placeholder with unique pending ID
             tenant = await whatsappDB.addWhatsappTenant({
                 business_name: `Location ${location_id} (Num ${tenants ? tenants.length + 1 : 1})`,
                 ghl_location_id: location_id,
-                whatsapp_phone_number: 'pending', // Will update when connected
+                whatsapp_phone_number: `pending_${Date.now()}`, // Unique to avoid UNIQUE constraint collisions
                 whatsapp_instance_id: instance_name,
                 whatsapp_api_key: 'built-in',
                 whatsapp_base_url: 'built-in'
