@@ -226,17 +226,70 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                 // Extract sender's WhatsApp display name
                 const pushName = msg.pushName || null;
 
-                // Extract text body
-                let body = msg.message?.conversation ||
-                           msg.message?.extendedTextMessage?.text ||
-                           msg.message?.imageMessage?.caption ||
-                           msg.message?.videoMessage?.caption ||
-                           '';
+                // ── Unwrap container message types ───────────────────────────
+                // WhatsApp wraps messages in containers for disappearing messages,
+                // view-once, edited messages, etc. We need to "unwrap" to get the
+                // actual message content inside.
+                let innerMessage = msg.message;
+                if (!innerMessage) {
+                    console.log(`[Baileys] ⏭️ Skipping message from ${fromNumber}: msg.message is null/undefined (protocol message)`);
+                    continue;
+                }
 
-                // Try to extract media if present (non-blocking — text always goes through)
+                // Unwrap known container types (can be nested, so we loop)
+                const wrapperTypes = [
+                    'ephemeralMessage',       // Disappearing messages
+                    'viewOnceMessage',        // View-once photos/videos
+                    'viewOnceMessageV2',      // View-once V2
+                    'viewOnceMessageV2Extension', // View-once V2 extension
+                    'documentWithCaptionMessage', // Documents with captions
+                    'editedMessage',          // Edited messages
+                ];
+                for (const wrapper of wrapperTypes) {
+                    if (innerMessage[wrapper]?.message) {
+                        console.log(`[Baileys] 📦 Unwrapping ${wrapper} from ${fromNumber}`);
+                        innerMessage = innerMessage[wrapper].message;
+                    }
+                }
+
+                // ── Extract text body from ALL known message types ───────────
+                let body =
+                    // Standard text messages
+                    innerMessage.conversation ||
+                    innerMessage.extendedTextMessage?.text ||
+                    // Media captions
+                    innerMessage.imageMessage?.caption ||
+                    innerMessage.videoMessage?.caption ||
+                    innerMessage.documentMessage?.caption ||
+                    // Interactive replies (from GHL campaigns, Facebook ad buttons, etc.)
+                    innerMessage.buttonsResponseMessage?.selectedDisplayText ||
+                    innerMessage.buttonsResponseMessage?.selectedButtonId ||
+                    innerMessage.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                    innerMessage.listResponseMessage?.title ||
+                    innerMessage.templateButtonReplyMessage?.selectedDisplayText ||
+                    innerMessage.templateButtonReplyMessage?.selectedId ||
+                    // Shared contacts
+                    (innerMessage.contactMessage ? `📇 Contact: ${innerMessage.contactMessage.displayName || 'shared'}` : '') ||
+                    (innerMessage.contactsArrayMessage ? `📇 ${innerMessage.contactsArrayMessage.contacts?.length || 0} contacts shared` : '') ||
+                    // Shared location
+                    (innerMessage.locationMessage ? `📍 Location: ${innerMessage.locationMessage.degreesLatitude}, ${innerMessage.locationMessage.degreesLongitude}` : '') ||
+                    (innerMessage.liveLocationMessage ? `📍 Live location shared` : '') ||
+                    // Reactions (forward them as context)
+                    (innerMessage.reactionMessage ? `${innerMessage.reactionMessage.text || '👍'} (reaction)` : '') ||
+                    // Poll responses
+                    (innerMessage.pollCreationMessage ? `📊 Poll: ${innerMessage.pollCreationMessage.name || 'poll'}` : '') ||
+                    (innerMessage.pollUpdateMessage ? `📊 Poll vote` : '') ||
+                    // Order messages (from WhatsApp Business catalogs)
+                    (innerMessage.orderMessage ? `🛒 Order received` : '') ||
+                    // Payment
+                    (innerMessage.paymentInviteMessage ? `💳 Payment invite` : '') ||
+                    // Fallback: empty string
+                    '';
+
+                // ── Media extraction ─────────────────────────────────────────
                 let mediaUrl = null;
                 const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
-                const detectedType = mediaTypes.find(t => msg.message?.[t]);
+                const detectedType = mediaTypes.find(t => innerMessage[t]);
 
                 if (detectedType) {
                     try {
@@ -246,7 +299,7 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                             reuploadRequest: sock.updateMediaMessage || sock.resyncMediaMessage || undefined
                         });
                         if (buffer && buffer.length > 0) {
-                            const mimetype = msg.message[detectedType].mimetype || 'image/jpeg';
+                            const mimetype = innerMessage[detectedType].mimetype || 'image/jpeg';
                             let ext = mimetype.split('/')[1]?.split(';')[0] || 'bin';
                             if (ext === 'jpeg') ext = 'jpg';
                             const filename = `${instanceId}_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
@@ -280,7 +333,17 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                     }
                 }
 
-                if (!body && !mediaUrl) continue;
+                // ── Skip only truly empty messages (with diagnostic logging) ─
+                if (!body && !mediaUrl) {
+                    // Log what keys ARE present so we can diagnose missing message types
+                    const msgKeys = innerMessage ? Object.keys(innerMessage).filter(k => k !== 'messageContextInfo') : [];
+                    if (msgKeys.length > 0) {
+                        console.warn(`[Baileys] ⚠️ UNHANDLED message type from ${fromNumber} (${pushName || 'unknown'}): keys=[${msgKeys.join(', ')}]. Message NOT forwarded to GHL.`);
+                    } else {
+                        console.log(`[Baileys] ⏭️ Empty/protocol message from ${fromNumber} — skipping.`);
+                    }
+                    continue;
+                }
 
                 console.log(`[Baileys] 📨 Inbound from ${fromNumber}${pushName ? ` (${pushName})` : ''} on ${instanceId}${mediaUrl ? ' [+media]' : ''}`);
                 if (_globalMessageHandler) {
