@@ -23,6 +23,11 @@ const qrWaiters = {};
 const processedMessages = new Map(); // msgId -> timestamp
 const DEDUP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
+// Global LID→Phone cache: WhatsApp now sends anonymous LIDs instead of phone JIDs.
+// We cache resolved mappings from contacts events and remoteJidAlt so that even
+// when a message arrives without remoteJidAlt, we can still resolve the real number.
+const lidToPhoneCache = new Map(); // lid (e.g. "108070621417525") -> phone (e.g. "2348103858144")
+
 // Global inbound message handler (set by the app on startup)
 let _globalMessageHandler = null;
 function setMessageHandler(fn) { _globalMessageHandler = fn; }
@@ -113,6 +118,45 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
         }
     });
 
+    // ── LID Resolution: Listen to contacts events for LID→phone mappings ──────
+    // WhatsApp sends contact updates that contain both the LID and the real phone JID.
+    // We cache these so that inbound messages with LID-only JIDs can be resolved.
+    sock.ev.on('contacts.upsert', (contacts) => {
+        for (const contact of contacts) {
+            try {
+                const id = contact.id || '';
+                const lid = contact.lid || '';
+                // If we have a phone-based JID and a LID, cache the mapping
+                if (id.endsWith('@s.whatsapp.net') && lid) {
+                    const phone = id.split('@')[0];
+                    const lidKey = lid.split('@')[0];
+                    lidToPhoneCache.set(lidKey, phone);
+                }
+                // If the contact ID IS a LID and there's a verifiedName or notify, log it
+                if (id.endsWith('@lid') && contact.notify) {
+                    console.log(`[Baileys] Contact sync: LID ${id} → name: ${contact.notify}`);
+                }
+            } catch (e) { /* skip bad contacts */ }
+        }
+        if (lidToPhoneCache.size > 0) {
+            console.log(`[Baileys] LID cache updated: ${lidToPhoneCache.size} resolved mappings`);
+        }
+    });
+
+    sock.ev.on('contacts.update', (updates) => {
+        for (const update of updates) {
+            try {
+                const id = update.id || '';
+                // Some updates carry lid field
+                if (id.endsWith('@s.whatsapp.net') && update.lid) {
+                    const phone = id.split('@')[0];
+                    const lidKey = update.lid.split('@')[0];
+                    lidToPhoneCache.set(lidKey, phone);
+                }
+            } catch (e) { /* skip */ }
+        }
+    });
+
     // Forward incoming messages to the global handler (which pushes to GHL)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
@@ -142,18 +186,38 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
 
                 // ── LID Resolution: Extract real phone number ─────────────────
                 // WhatsApp now sends anonymous LIDs (e.g. "108070621417525@lid")
-                // instead of phone-based JIDs. The real number is in remoteJidAlt.
+                // instead of phone-based JIDs. We resolve using multiple strategies.
                 let fromNumber;
                 const isLid = fromJid.endsWith('@lid');
 
                 if (isLid && msg.key.remoteJidAlt) {
-                    // remoteJidAlt contains the real phone JID: "33664456032@s.whatsapp.net"
-                    fromNumber = '+' + msg.key.remoteJidAlt.split('@')[0];
+                    // Strategy 1: remoteJidAlt contains the real phone JID
+                    const phone = msg.key.remoteJidAlt.split('@')[0];
+                    fromNumber = '+' + phone;
+                    // Cache this mapping for future messages from the same LID
+                    const lidKey = fromJid.split('@')[0];
+                    lidToPhoneCache.set(lidKey, phone);
                     console.log(`[Baileys] LID resolved: ${fromJid} → ${fromNumber} (via remoteJidAlt)`);
                 } else if (isLid) {
-                    // LID with no alt — log warning, use LID as fallback
-                    fromNumber = '+' + fromJid.split('@')[0];
-                    console.warn(`[Baileys] ⚠️ LID received with NO remoteJidAlt — cannot resolve real phone number. Using LID as fallback: ${fromNumber}`);
+                    // Strategy 2: Check our LID→phone cache (populated from contacts events)
+                    const lidKey = fromJid.split('@')[0];
+                    const cachedPhone = lidToPhoneCache.get(lidKey);
+                    if (cachedPhone) {
+                        fromNumber = '+' + cachedPhone;
+                        console.log(`[Baileys] LID resolved: ${fromJid} → ${fromNumber} (via cache)`);
+                    } else {
+                        // Strategy 3: Check if participant field has the real JID
+                        const participant = msg.key.participant || msg.participant || '';
+                        if (participant && participant.endsWith('@s.whatsapp.net')) {
+                            fromNumber = '+' + participant.split('@')[0];
+                            lidToPhoneCache.set(lidKey, participant.split('@')[0]);
+                            console.log(`[Baileys] LID resolved: ${fromJid} → ${fromNumber} (via participant)`);
+                        } else {
+                            // Last resort: use LID as fallback but log a clear warning
+                            fromNumber = '+' + lidKey;
+                            console.warn(`[Baileys] ⚠️ UNRESOLVED LID: ${fromJid} — no remoteJidAlt, no cache, no participant. Message from "${msg.pushName || 'unknown'}" will use LID as phone number.`);
+                        }
+                    }
                 } else {
                     // Classic phone-based JID: "33664456032@s.whatsapp.net"
                     fromNumber = '+' + fromJid.split('@')[0];
