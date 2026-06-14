@@ -99,13 +99,14 @@ async function deleteWhatsappTenant(id) {
  * Used when a new WhatsApp number is added and needs to inherit tokens.
  */
 async function getWhatsappTokensByLocationId(locationId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
         .from('whatsapp_tenants')
         .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
         .eq('ghl_location_id', locationId)
         .not('ghl_refresh_token', 'is', null)
-        .order('updated_at', { ascending: false, nullsFirst: false })
+        .order('ghl_token_expires_at', { ascending: false, nullsFirst: false })
         .limit(1);
+    if (error) console.error('[WhatsApp DB] Token lookup error:', error.message);
     return data && data.length > 0 ? data[0] : null;
 }
 
