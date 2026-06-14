@@ -18,6 +18,11 @@ const sessions = {};
 // Callbacks waiting for QR
 const qrWaiters = {};
 
+// Deduplication: track recently processed message IDs to prevent double-processing
+// Baileys can fire messages.upsert multiple times for the same message
+const processedMessages = new Map(); // msgId -> timestamp
+const DEDUP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+
 // Global inbound message handler (set by the app on startup)
 let _globalMessageHandler = null;
 function setMessageHandler(fn) { _globalMessageHandler = fn; }
@@ -114,6 +119,22 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
         for (const msg of messages) {
             try {
                 if (msg.key.fromMe) continue;
+
+                // ── Deduplication: skip messages we've already processed ──
+                const msgId = msg.key.id;
+                if (msgId && processedMessages.has(msgId)) {
+                    continue; // Already processed this message
+                }
+                if (msgId) {
+                    processedMessages.set(msgId, Date.now());
+                    // Cleanup old entries periodically
+                    if (processedMessages.size > 500) {
+                        const now = Date.now();
+                        for (const [id, ts] of processedMessages) {
+                            if (now - ts > DEDUP_EXPIRY_MS) processedMessages.delete(id);
+                        }
+                    }
+                }
                 const fromJid = msg.key.remoteJid || '';
                 if (fromJid.endsWith('@g.us')) continue; // Skip group messages
                 if (fromJid === 'status@broadcast') continue; // Skip status updates (Stories)
