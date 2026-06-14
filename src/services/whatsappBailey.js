@@ -164,21 +164,7 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
             try {
                 if (msg.key.fromMe) continue;
 
-                // ── Deduplication: skip messages we've already processed ──
-                const msgId = msg.key.id;
-                if (msgId && processedMessages.has(msgId)) {
-                    continue; // Already processed this message
-                }
-                if (msgId) {
-                    processedMessages.set(msgId, Date.now());
-                    // Cleanup old entries periodically
-                    if (processedMessages.size > 500) {
-                        const now = Date.now();
-                        for (const [id, ts] of processedMessages) {
-                            if (now - ts > DEDUP_EXPIRY_MS) processedMessages.delete(id);
-                        }
-                    }
-                }
+
                 const fromJid = msg.key.remoteJid || '';
                 if (fromJid.endsWith('@g.us')) continue; // Skip group messages
                 if (fromJid === 'status@broadcast') continue; // Skip status updates (Stories)
@@ -234,6 +220,23 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
                 if (!innerMessage) {
                     console.log(`[Baileys] ⏭️ Skipping message from ${fromNumber}: msg.message is null/undefined (protocol message)`);
                     continue;
+                }
+
+                // ── Deduplication: skip messages we've already processed ──
+                // Placed here so we only deduplicate actual content messages, not protocol stubs
+                const msgId = msg.key.id;
+                if (msgId && processedMessages.has(msgId)) {
+                    continue; // Already processed this message
+                }
+                if (msgId) {
+                    processedMessages.set(msgId, Date.now());
+                    // Cleanup old entries periodically
+                    if (processedMessages.size > 500) {
+                        const now = Date.now();
+                        for (const [id, ts] of processedMessages) {
+                            if (now - ts > DEDUP_EXPIRY_MS) processedMessages.delete(id);
+                        }
+                    }
                 }
 
                 // Unwrap known container types (can be nested, so we loop)
