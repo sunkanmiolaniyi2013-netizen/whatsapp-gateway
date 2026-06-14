@@ -50,10 +50,18 @@ router.get('/callback', async (req, res) => {
             savedSuccessfully = true;
         }
 
-        // 3. Save to WhatsApp (if configured)
-        if (whatsappTenants && whatsappTenants.length > 0) {
-            console.log(`[OAuth] Saving tokens for WhatsApp tenant at location ${locationId}`);
-            await whatsappDB.updateWhatsappTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+        // 3. Save to WhatsApp (if configured — including soft-deleted rows)
+        // We check ALL rows (active + inactive) because soft-deleted rows still
+        // hold tokens that new numbers will inherit from.
+        if ((whatsappTenants && whatsappTenants.length > 0) || tenant || (twilioTenants && twilioTenants.length > 0)) {
+            // Always try to update — updateWhatsappTenantOAuthTokens doesn't filter by is_active
+            console.log(`[OAuth] Saving tokens for WhatsApp tenant(s) at location ${locationId}`);
+            try {
+                await whatsappDB.updateWhatsappTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+            } catch (e) {
+                // Non-fatal: no WA rows exist yet, that's fine
+                console.log(`[OAuth] No WhatsApp rows to update for ${locationId} (will be inherited when number is added)`);
+            }
             savedSuccessfully = true;
         }
 

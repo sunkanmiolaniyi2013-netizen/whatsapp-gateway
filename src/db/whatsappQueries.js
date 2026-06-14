@@ -84,12 +84,29 @@ async function updateWhatsappTenantOAuthTokens(locationId, accessToken, refreshT
 }
 
 async function deleteWhatsappTenant(id) {
+    // Soft-delete: keep the row (and its OAuth tokens) so new numbers
+    // on the same location can inherit them without re-authorizing.
     const { error } = await supabase
         .from('whatsapp_tenants')
-        .delete()
+        .update({ is_active: false })
         .eq('id', id);
     if (error) throw error;
     return true;
+}
+
+/**
+ * Find OAuth tokens from any row (active OR inactive) for a location.
+ * Used when a new WhatsApp number is added and needs to inherit tokens.
+ */
+async function getWhatsappTokensByLocationId(locationId) {
+    const { data } = await supabase
+        .from('whatsapp_tenants')
+        .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
+        .eq('ghl_location_id', locationId)
+        .not('ghl_refresh_token', 'is', null)
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+    return data && data.length > 0 ? data[0] : null;
 }
 
 async function updateWhatsappTenant(id, payload) {
@@ -112,5 +129,6 @@ module.exports = {
     updateWhatsappTenantOAuthTokens,
     deleteWhatsappTenant,
     updateWhatsappTenant,
-    assignWhatsappTenantUser
+    assignWhatsappTenantUser,
+    getWhatsappTokensByLocationId
 };

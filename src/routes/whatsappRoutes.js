@@ -255,13 +255,20 @@ router.post('/setup/start', async (req, res) => {
             }
 
             // Auto-create tenant placeholder with unique pending ID
+            // Inherit OAuth tokens from any existing (even soft-deleted) row for this location
+            const inheritedTokens = await whatsappDB.getWhatsappTokensByLocationId(location_id);
             tenant = await whatsappDB.addWhatsappTenant({
                 business_name: `Location ${location_id} (Num ${tenants ? tenants.length + 1 : 1})`,
                 ghl_location_id: location_id,
                 whatsapp_phone_number: `pending_${Date.now()}`, // Unique to avoid UNIQUE constraint collisions
                 whatsapp_instance_id: instance_name,
                 whatsapp_api_key: 'built-in',
-                whatsapp_base_url: 'built-in'
+                whatsapp_base_url: 'built-in',
+                ...(inheritedTokens ? {
+                    ghl_access_token: inheritedTokens.ghl_access_token,
+                    ghl_refresh_token: inheritedTokens.ghl_refresh_token,
+                    ghl_token_expires_at: inheritedTokens.ghl_token_expires_at
+                } : {})
             });
         } else {
             // Default to first tenant if nothing specified (for backwards compatibility)

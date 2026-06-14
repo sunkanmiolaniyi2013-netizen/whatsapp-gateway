@@ -87,7 +87,20 @@ async function runRefreshCycle() {
         await refreshTenantToken('twilio_tenants', tenant);
     }
 
-    const total = (androidTenants?.length || 0) + (twilioTenants?.length || 0);
+    // ── WhatsApp Tenants ────────────────────────────────────────────────────
+    const { data: whatsappTenants, error: e3 } = await supabase
+        .from('whatsapp_tenants')
+        .select('id, ghl_location_id, ghl_refresh_token')
+        .not('ghl_refresh_token', 'is', null)
+        .eq('is_active', true);
+
+    if (e3) console.error('[TokenJob] Error fetching WhatsApp tenants:', e3.message);
+
+    for (const tenant of (whatsappTenants || [])) {
+        await refreshTenantToken('whatsapp_tenants', tenant);
+    }
+
+    const total = (androidTenants?.length || 0) + (twilioTenants?.length || 0) + (whatsappTenants?.length || 0);
     console.log(`[TokenJob] ✅ Refresh cycle complete. Processed ${total} tenant(s).`);
 }
 

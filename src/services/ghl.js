@@ -1,6 +1,7 @@
 const axios = require('axios');
 const config = require('../config');
 const supabase = require('../db/supabase');
+const whatsappDB = require('../db/whatsappQueries');
 
 /**
  * Ensures the tenant has a valid Access Token.
@@ -30,8 +31,10 @@ async function getValidAccessToken(tenant) {
     // ── Sibling Token Lookup ─────────────────────────────────────────────────
     // If this specific row has no refresh token yet, look for one from a sibling
     // tenant on the same location (e.g. a Twilio tenant inheriting from Android).
+    // Also handles the case where tenant.id is undefined (bare location lookups).
     if (!tenant.ghl_refresh_token) {
-        console.log(`[OAuth] Row ${tenant.id} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
+        const tenantLabel = tenant.id || 'no-id';
+        console.log(`[OAuth] Row ${tenantLabel} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
 
         // ── Fallback 1: PIT Key Sibling ───────────────────────────────────────
         // If any Android tenant for this location has a Private Integration Token,
@@ -51,8 +54,9 @@ async function getValidAccessToken(tenant) {
     }
 
     if (!tenant.ghl_refresh_token || preferSiblingSmsToken) {
+        const tenantLabel = tenant.id || 'no-id';
         if (!tenant.ghl_refresh_token) {
-            console.log(`[OAuth] Row ${tenant.id} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
+            console.log(`[OAuth] Row ${tenantLabel} has no tokens. Searching siblings for location ${tenant.ghl_location_id}...`);
         } else {
             console.log(`[OAuth] Forcing SMS token lookup to bypass GHL WhatsApp channel strictness for ${tenant.ghl_location_id}...`);
         }
@@ -79,30 +83,27 @@ async function getValidAccessToken(tenant) {
             if (sibling2 && sibling2.length > 0) siblingToken = sibling2[0];
         }
 
-        // Check WhatsApp tenants if not found in Twilio
+        // Check WhatsApp tenants (including soft-deleted/inactive ones) if not found
         if (!siblingToken) {
-            const { data: sibling3 } = await supabase
-                .from('whatsapp_tenants')
-                .select('ghl_access_token, ghl_refresh_token, ghl_token_expires_at')
-                .eq('ghl_location_id', tenant.ghl_location_id)
-                .not('ghl_refresh_token', 'is', null)
-                .limit(1);
-            if (sibling3 && sibling3.length > 0) siblingToken = sibling3[0];
+            siblingToken = await whatsappDB.getWhatsappTokensByLocationId(tenant.ghl_location_id);
         }
 
         // If we found a sibling SMS token, use it! If not, fallback to whatever we have.
         if (siblingToken && siblingToken.ghl_refresh_token) {
-            console.log(`[OAuth] Sibling tokens found! Inheriting into row ${tenant.id}...`);
+            console.log(`[OAuth] Sibling tokens found! Inheriting into row ${tenantLabel}...`);
             tenant.ghl_access_token = siblingToken.ghl_access_token;
             tenant.ghl_refresh_token = siblingToken.ghl_refresh_token;
             tenant.ghl_token_expires_at = siblingToken.ghl_token_expires_at;
 
             // Persist them so future calls don't need to do the sibling lookup again
-            await supabase.from(tableName).update({
-                ghl_access_token: siblingToken.ghl_access_token,
-                ghl_refresh_token: siblingToken.ghl_refresh_token,
-                ghl_token_expires_at: siblingToken.ghl_token_expires_at
-            }).eq('id', tenant.id);
+            // Only update if we have a valid tenant.id to target
+            if (tenant.id) {
+                await supabase.from(tableName).update({
+                    ghl_access_token: siblingToken.ghl_access_token,
+                    ghl_refresh_token: siblingToken.ghl_refresh_token,
+                    ghl_token_expires_at: siblingToken.ghl_token_expires_at
+                }).eq('id', tenant.id);
+            }
         } else {
             throw new Error(
                 `Location ${tenant.ghl_location_id} has no PIT key and no valid OAuth tokens. ` +
@@ -133,11 +134,14 @@ async function getValidAccessToken(tenant) {
 
         const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000);
 
-        await supabase.from(tableName).update({
-            ghl_access_token: res.data.access_token,
-            ghl_refresh_token: res.data.refresh_token,
-            ghl_token_expires_at: newExpiresAt
-        }).eq('id', tenant.id);
+        // Save refreshed tokens back — only if we have a valid row id
+        if (tenant.id) {
+            await supabase.from(tableName).update({
+                ghl_access_token: res.data.access_token,
+                ghl_refresh_token: res.data.refresh_token,
+                ghl_token_expires_at: newExpiresAt
+            }).eq('id', tenant.id);
+        }
 
         tenant.ghl_access_token = res.data.access_token;
         tenant.ghl_refresh_token = res.data.refresh_token;
