@@ -8,6 +8,15 @@ const ghlService = require('../services/ghl');
 const axios = require('axios');
 const convoTracker = require('../services/whatsappConversationTracker');
 
+router.get('/debug-db', async (req, res) => {
+    try {
+        const tenants = await whatsappDB.getAllWhatsappTenants();
+        res.json({ tenants });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ─── 1. Provider Send Route (For GHL Custom Provider) ───────────────────────
 router.post('/provider/send-message', async (req, res) => {
     try {

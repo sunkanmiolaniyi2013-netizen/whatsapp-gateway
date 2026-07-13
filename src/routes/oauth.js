@@ -28,11 +28,21 @@ router.get('/callback', async (req, res) => {
         });
 
         const { access_token, refresh_token, expires_in, locationId, companyId } = tokenRes.data;
-        const finalLocId = locationId || companyId;
         
-        if (!finalLocId) {
-            throw new Error('No locationId or companyId found in GHL response: ' + JSON.stringify(tokenRes.data));
+        if (!locationId) {
+            return res.status(400).send(`
+                <h2>Installation Failed: Wrong Account Level</h2>
+                <p>You selected an <strong>Agency</strong> instead of a <strong>Sub-Account</strong> during installation.</p>
+                <p>Because this WhatsApp integration manages physical phone numbers per location, it <strong>must be installed on a specific Sub-Account.</strong></p>
+                <p><strong>How to fix:</strong><br>
+                1. Go to your GoHighLevel Agency Settings -> App Marketplace -> Installed Apps and uninstall this app.<br>
+                2. Click your installation link again.<br>
+                3. When the GoHighLevel authorization screen appears, <strong>select a specific Sub-Account</strong> from the dropdown list, DO NOT select the Agency.</p>
+                <p><em>(If you do not see any Sub-Accounts in the dropdown, you must edit your App settings in the GoHighLevel Marketplace Developer Studio and change the "Distribution Type" to Sub-Account).</em></p>
+            `);
         }
+
+        const finalLocId = locationId;
 
         // Ensure the location exists in either Android or Twilio DB
         const tenant = await db.getTenantByLocationId(finalLocId);
