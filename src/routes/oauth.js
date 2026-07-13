@@ -90,8 +90,9 @@ router.get('/callback', async (req, res) => {
             return res.status(404).send(`<h2>Error</h2><p>Location ID ${locationId} has not been registered in your Admin Dashboard yet. Go add the business or Twilio number first, then click Connect!</p>`);
         }
     } catch (error) {
-        console.error('OAuth Error:', error.response?.data || error.message);
-        res.status(500).send('OAuth failed. Check server logs.');
+        const errorDetails = error.response?.data || error.message;
+        console.error('OAuth Error:', errorDetails);
+        res.status(500).send(`<h2>OAuth failed</h2><p><strong>Error Details:</strong> <pre>${JSON.stringify(errorDetails, null, 2)}</pre></p><p>Check if your GHL_CLIENT_ID/SECRET and redirect URI match exactly what is in your GHL App Settings.</p>`);
     }
 });
 
