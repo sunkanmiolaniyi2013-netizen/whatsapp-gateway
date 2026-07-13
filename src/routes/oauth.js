@@ -73,7 +73,7 @@ router.get('/callback', async (req, res) => {
             await whatsappDB.addWhatsappTenant({
                 business_name: `Location ${finalLocId}`,
                 ghl_location_id: finalLocId,
-                whatsapp_phone_number: 'pending',
+                whatsapp_phone_number: `pending_${finalLocId.substring(0, 10)}_${Date.now()}`,
                 whatsapp_instance_id: `wa_${finalLocId.substring(0, 10)}_${Date.now()}`,
                 whatsapp_api_key: 'built-in',
                 whatsapp_base_url: 'built-in',
