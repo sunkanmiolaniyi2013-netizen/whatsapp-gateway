@@ -27,54 +27,54 @@ router.get('/callback', async (req, res) => {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
-        const { access_token, refresh_token, expires_in, locationId } = tokenRes.data;
+        const { access_token, refresh_token, expires_in, locationId, companyId } = tokenRes.data;
+        const finalLocId = locationId || companyId;
+        
+        if (!finalLocId) {
+            throw new Error('No locationId or companyId found in GHL response: ' + JSON.stringify(tokenRes.data));
+        }
 
         // Ensure the location exists in either Android or Twilio DB
-        const tenant = await db.getTenantByLocationId(locationId);
-        const twilioTenants = await twilioDB.getTwilioTenantsByLocationId(locationId);
-        const whatsappTenants = await whatsappDB.getWhatsappTenantsByLocationId(locationId);
+        const tenant = await db.getTenantByLocationId(finalLocId);
+        const twilioTenants = await twilioDB.getTwilioTenantsByLocationId(finalLocId);
+        const whatsappTenants = await whatsappDB.getWhatsappTenantsByLocationId(finalLocId);
         
         let savedSuccessfully = false;
 
         // 1. Save to Android (if configured)
         if (tenant) {
-            console.log(`[OAuth] Saving tokens for Android tenant at location ${locationId}`);
-            await db.updateTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+            console.log(`[OAuth] Saving tokens for Android tenant at location ${finalLocId}`);
+            await db.updateTenantOAuthTokens(finalLocId, access_token, refresh_token, expires_in);
             savedSuccessfully = true;
         }
 
         // 2. Save to Twilio (if configured)
         if (twilioTenants && twilioTenants.length > 0) {
-            console.log(`[OAuth] Saving tokens for Twilio tenant at location ${locationId}`);
-            await twilioDB.updateTwilioTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+            console.log(`[OAuth] Saving tokens for Twilio tenant at location ${finalLocId}`);
+            await twilioDB.updateTwilioTenantOAuthTokens(finalLocId, access_token, refresh_token, expires_in);
             savedSuccessfully = true;
         }
 
         // 3. Save to WhatsApp (if configured — including soft-deleted rows)
-        // We check ALL rows (active + inactive) because soft-deleted rows still
-        // hold tokens that new numbers will inherit from.
         if ((whatsappTenants && whatsappTenants.length > 0) || tenant || (twilioTenants && twilioTenants.length > 0)) {
-            // Always try to update — updateWhatsappTenantOAuthTokens doesn't filter by is_active
-            console.log(`[OAuth] Saving tokens for WhatsApp tenant(s) at location ${locationId}`);
+            console.log(`[OAuth] Saving tokens for WhatsApp tenant(s) at location ${finalLocId}`);
             try {
-                await whatsappDB.updateWhatsappTenantOAuthTokens(locationId, access_token, refresh_token, expires_in);
+                await whatsappDB.updateWhatsappTenantOAuthTokens(finalLocId, access_token, refresh_token, expires_in);
             } catch (e) {
-                // Non-fatal: no WA rows exist yet, that's fine
-                console.log(`[OAuth] No WhatsApp rows to update for ${locationId} (will be inherited when number is added)`);
+                console.log(`[OAuth] No WhatsApp rows to update for ${finalLocId}`);
             }
             savedSuccessfully = true;
         }
 
         // 4. Auto-provision WhatsApp Placeholder if no gateway is setup yet
-        // This prevents the "not registered" error for users who ONLY want WhatsApp
         if (!savedSuccessfully) {
-            console.log(`[OAuth] No gateway found for ${locationId}. Auto-provisioning WhatsApp placeholder.`);
+            console.log(`[OAuth] No gateway found for ${finalLocId}. Auto-provisioning WhatsApp placeholder.`);
             const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
             await whatsappDB.addWhatsappTenant({
-                business_name: `Location ${locationId}`,
-                ghl_location_id: locationId,
+                business_name: `Location ${finalLocId}`,
+                ghl_location_id: finalLocId,
                 whatsapp_phone_number: 'pending',
-                whatsapp_instance_id: `wa_${locationId.substring(0, 10)}_${Date.now()}`,
+                whatsapp_instance_id: `wa_${finalLocId.substring(0, 10)}_${Date.now()}`,
                 whatsapp_api_key: 'built-in',
                 whatsapp_base_url: 'built-in',
                 ghl_access_token: access_token,
@@ -85,9 +85,9 @@ router.get('/callback', async (req, res) => {
         }
 
         if (savedSuccessfully) {
-            return res.send(`<h2>Success! GoHighLevel successfully connected for Location ID: ${locationId}</h2><p>You can close this window now.</p>`);
+            return res.send(`<h2>Success! GoHighLevel successfully connected for Location ID: ${finalLocId}</h2><p>You can close this window now.</p>`);
         } else {
-            return res.status(404).send(`<h2>Error</h2><p>Location ID ${locationId} has not been registered in your Admin Dashboard yet. Go add the business or Twilio number first, then click Connect!</p>`);
+            return res.status(404).send(`<h2>Error</h2><p>Location ID ${finalLocId} has not been registered in your Admin Dashboard yet.</p>`);
         }
     } catch (error) {
         const errorDetails = error.response?.data || error.message;
