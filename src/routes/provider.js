@@ -72,7 +72,17 @@ router.post('/send-message', async (req, res) => {
                     );
                     return res.status(response.status).json(response.data);
                 } catch (waErr) {
-                    console.error('[Provider] Smart WhatsApp routing error (falling back to SMS):', waErr.response?.data || waErr.message);
+                    console.error('[Provider] Smart WhatsApp routing error:', waErr.response?.data || waErr.message);
+
+                    // Check if Android SIM coverage exists for this country
+                    const hasAndroidCoverage = await db.hasAndroidCoverageForCountry(locationId, toNumber);
+                    if (!hasAndroidCoverage) {
+                        console.log(`[Provider] No Android SIM coverage available for ${toNumber}. Returning WhatsApp error status directly to GHL.`);
+                        const status = waErr.response?.status || 500;
+                        const data = waErr.response?.data || { success: false, error: waErr.message };
+                        return res.status(status).json(data);
+                    }
+                    console.log(`[Provider] Android SIM coverage found for ${toNumber}. Falling back to Android SMS gateway.`);
                 }
             }
         }

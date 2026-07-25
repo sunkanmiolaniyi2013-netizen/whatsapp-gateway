@@ -83,18 +83,30 @@ router.post('/provider/send-message', async (req, res) => {
         const instanceId = tenant.whatsapp_instance_id;
 
         // Ensure the Baileys session is running for this instance
-        const status = wa.getStatus(instanceId);
-        if (status !== 'open') {
-            // Try to restore session
-            await new Promise(resolve => {
-                wa.startSession(instanceId, {
-                    onConnected: resolve,
-                    onDisconnected: () => {}
-                });
-                setTimeout(resolve, 5000); // Don't block more than 5s
-            });
+        let currentStatus = wa.getStatus(instanceId);
+        if (currentStatus !== 'open') {
+            console.log(`[WhatsApp Route] Instance ${instanceId} status is '${currentStatus}'. Attempting reconnection/restore...`);
+            // Trigger session restore
+            wa.startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(() => {});
+            
+            // Poll for up to 12 seconds (24 intervals of 500ms) for connection to open
+            const maxAttempts = 24;
+            for (let i = 0; i < maxAttempts; i++) {
+                await new Promise(r => setTimeout(r, 500));
+                currentStatus = wa.getStatus(instanceId);
+                if (currentStatus === 'open') {
+                    console.log(`[WhatsApp Route] Session ${instanceId} re-connected successfully after ${(i + 1) * 500}ms`);
+                    break;
+                }
+            }
+
             if (wa.getStatus(instanceId) !== 'open') {
-                return res.status(503).json({ success: false, message: 'WhatsApp session not connected. Please re-scan QR code.' });
+                console.warn(`[WhatsApp Route] Session ${instanceId} failed to open within 12s (status: ${wa.getStatus(instanceId)})`);
+                return res.status(503).json({
+                    success: false,
+                    isWhatsappError: true,
+                    message: 'WhatsApp session is re-connecting. Please retry sending in a few seconds.'
+                });
             }
         }
 

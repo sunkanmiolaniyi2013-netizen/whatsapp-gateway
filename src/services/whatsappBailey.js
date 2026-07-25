@@ -398,59 +398,105 @@ function getPhone(instanceId) {
 /**
  * Send a WhatsApp text message.
  */
-async function sendMessage(instanceId, to, text, attachments = []) {
+/**
+ * Send a WhatsApp text message with automatic retry for transient socket errors.
+ */
+async function sendMessage(instanceId, to, text, attachments = [], retryCount = 0) {
     const session = sessions[instanceId];
     if (!session || session.status !== 'open') {
-        throw new Error(`WhatsApp instance ${instanceId} is not connected`);
+        throw new Error(`WhatsApp instance ${instanceId} is not connected (status: ${session?.status || 'none'})`);
     }
 
     const jid = to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`;
 
-    // If there are attachments, send each one as media
-    if (attachments && attachments.length > 0) {
-        for (const attachment of attachments) {
-            const url = attachment.url || attachment;
-            if (!url || typeof url !== 'string') continue;
+    try {
+        // If there are attachments, send each one as media
+        if (attachments && attachments.length > 0) {
+            for (const attachment of attachments) {
+                const url = attachment.url || attachment;
+                if (!url || typeof url !== 'string') continue;
 
-            try {
-                console.log(`[Baileys] Downloading attachment: ${url}`);
-                const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
-                const buffer = Buffer.from(response.data);
-                const contentType = response.headers['content-type'] || 'application/octet-stream';
+                try {
+                    console.log(`[Baileys] Downloading attachment: ${url}`);
+                    const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+                    const buffer = Buffer.from(response.data);
+                    const contentType = response.headers['content-type'] || 'application/octet-stream';
 
-                let msgPayload;
-                if (contentType.startsWith('image/')) {
-                    msgPayload = { image: buffer, caption: text || '', mimetype: contentType };
-                } else if (contentType.startsWith('video/')) {
-                    msgPayload = { video: buffer, caption: text || '', mimetype: contentType };
-                } else if (contentType.startsWith('audio/')) {
-                    msgPayload = { audio: buffer, mimetype: contentType, ptt: false };
-                } else {
-                    // Send as document
-                    const fileName = attachment.fileName || url.split('/').pop()?.split('?')[0] || 'file';
-                    msgPayload = { document: buffer, mimetype: contentType, fileName };
+                    let msgPayload;
+                    if (contentType.startsWith('image/')) {
+                        msgPayload = { image: buffer, caption: text || '', mimetype: contentType };
+                    } else if (contentType.startsWith('video/')) {
+                        msgPayload = { video: buffer, caption: text || '', mimetype: contentType };
+                    } else if (contentType.startsWith('audio/')) {
+                        msgPayload = { audio: buffer, mimetype: contentType, ptt: false };
+                    } else {
+                        // Send as document
+                        const fileName = attachment.fileName || url.split('/').pop()?.split('?')[0] || 'file';
+                        msgPayload = { document: buffer, mimetype: contentType, fileName };
+                    }
+
+                    await session.socket.sendMessage(jid, msgPayload);
+                    console.log(`[Baileys] ✅ Media sent: ${contentType}, ${buffer.length} bytes`);
+
+                    // If image/video had a caption, we already sent the text with it
+                    // Clear text so we don't send it again as a separate message
+                    text = null;
+                } catch (dlErr) {
+                    console.error(`[Baileys] Failed to download/send attachment: ${dlErr.message}`);
+                    // Fall back to sending URL as text
+                    await session.socket.sendMessage(jid, { text: `${text || ''}\n📎 ${url}`.trim() });
+                    text = null;
                 }
-
-                await session.socket.sendMessage(jid, msgPayload);
-                console.log(`[Baileys] ✅ Media sent: ${contentType}, ${buffer.length} bytes`);
-
-                // If image/video had a caption, we already sent the text with it
-                // Clear text so we don't send it again as a separate message
-                text = null;
-            } catch (dlErr) {
-                console.error(`[Baileys] Failed to download/send attachment: ${dlErr.message}`);
-                // Fall back to sending URL as text
-                await session.socket.sendMessage(jid, { text: `${text || ''}\n📎 ${url}`.trim() });
-                text = null;
             }
         }
-    }
 
-    // Send remaining text (if no attachment consumed it)
-    if (text) {
-        await session.socket.sendMessage(jid, { text });
+        // Send remaining text (if no attachment consumed it)
+        if (text) {
+            await session.socket.sendMessage(jid, { text });
+        }
+    } catch (sendErr) {
+        const isTransient = sendErr.message?.includes('Connection Closed') ||
+                            sendErr.message?.includes('Timed Out') ||
+                            sendErr.message?.includes('reset') ||
+                            sendErr.message?.includes('closed');
+
+        if (retryCount < 2 && isTransient) {
+            console.warn(`[Baileys] Outbound send transient error (${sendErr.message}). Retrying in 1.5s (attempt ${retryCount + 1})...`);
+            await new Promise(r => setTimeout(r, 1500));
+            return sendMessage(instanceId, to, text, attachments, retryCount + 1);
+        }
+        throw sendErr;
     }
 }
+
+/**
+ * Keep-Alive Interval: Pings active WhatsApp WebSockets every 3 minutes
+ * to keep connections warm and prevent server-side idle disconnects.
+ */
+function startKeepAliveLoop() {
+    setInterval(async () => {
+        const activeSessions = Object.entries(sessions);
+        if (activeSessions.length === 0) return;
+
+        for (const [instanceId, s] of activeSessions) {
+            if (s.status === 'open' && s.socket) {
+                try {
+                    await s.socket.sendPresenceUpdate('available');
+                } catch (e) {
+                    console.warn(`[Baileys KeepAlive] Ping failed for ${instanceId}: ${e.message}`);
+                }
+            } else if (s.status === 'disconnected') {
+                console.log(`[Baileys KeepAlive] Proactively reconnecting disconnected instance: ${instanceId}`);
+                startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(err => {
+                    console.error(`[Baileys KeepAlive] Reconnect attempt error for ${instanceId}:`, err.message);
+                });
+            }
+        }
+    }, 3 * 60 * 1000); // 3 minutes
+}
+
+// Start keep-alive loop automatically
+startKeepAliveLoop();
 
 /**
  * Delete (logout) an instance.
@@ -476,3 +522,4 @@ function listSessions() {
 }
 
 module.exports = { startSession, getQR, getStatus, getPhone, sendMessage, deleteSession, listSessions, setMessageHandler };
+
