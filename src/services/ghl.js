@@ -3,6 +3,13 @@ const config = require('../config');
 const supabase = require('../db/supabase');
 const whatsappDB = require('../db/whatsappQueries');
 
+// ── OAuth Refresh Mutex ──────────────────────────────────────────────────────
+// Prevents concurrent token refreshes for the same location.
+// GHL rotates BOTH access + refresh tokens on every refresh call, so if two
+// requests refresh simultaneously, the second one uses an invalidated refresh
+// token and fails with 401. This mutex ensures only one refresh runs at a time.
+const refreshLocks = new Map(); // locationId → Promise<{ access_token, refresh_token }>
+
 /**
  * Ensures the tenant has a valid Access Token.
  * Priority: OAuth (primary) → PIT bypass (fallback for tenants configured with pit- key)
@@ -112,40 +119,70 @@ async function getValidAccessToken(tenant) {
         }
     }
 
-    // ── Token Refresh ────────────────────────────────────────────────────────
-    // If the access token is expired or expiring within 15 minutes, refresh it now.
+    // ── Token Refresh (with Mutex Lock) ────────────────────────────────────
+    // If the access token is expired or expiring within 15 minutes, refresh it.
     // GHL rotates both access AND refresh tokens on every refresh call.
+    // The mutex ensures only ONE request refreshes at a time per location.
     const now = new Date();
     const expiresAt = new Date(tenant.ghl_token_expires_at);
+    const locationId = tenant.ghl_location_id;
 
     if (expiresAt.getTime() - now.getTime() < 15 * 60 * 1000) {
-        console.log(`[OAuth] Token expired/expiring for ${tenant.ghl_location_id}. Refreshing...`);
-
-        const formData = new URLSearchParams({
-            client_id: config.GHL_CLIENT_ID,
-            client_secret: config.GHL_CLIENT_SECRET,
-            grant_type: 'refresh_token',
-            refresh_token: tenant.ghl_refresh_token
-        }).toString();
-
-        const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', formData, {
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
-
-        const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000);
-
-        // Save refreshed tokens back — only if we have a valid row id
-        if (tenant.id) {
-            await supabase.from(tableName).update({
-                ghl_access_token: res.data.access_token,
-                ghl_refresh_token: res.data.refresh_token,
-                ghl_token_expires_at: newExpiresAt
-            }).eq('id', tenant.id);
+        // ── Mutex: If another request is already refreshing, wait for it ──
+        if (refreshLocks.has(locationId)) {
+            console.log(`[OAuth Mutex] Refresh already in-flight for ${locationId}. Waiting...`);
+            try {
+                const result = await refreshLocks.get(locationId);
+                tenant.ghl_access_token = result.access_token;
+                tenant.ghl_refresh_token = result.refresh_token;
+                console.log(`[OAuth Mutex] ✅ Got token from in-flight refresh for ${locationId}`);
+                return result.access_token;
+            } catch (mutexErr) {
+                console.error(`[OAuth Mutex] In-flight refresh failed for ${locationId}:`, mutexErr.message);
+                throw mutexErr;
+            }
         }
 
-        tenant.ghl_access_token = res.data.access_token;
-        tenant.ghl_refresh_token = res.data.refresh_token;
-        console.log(`[OAuth] ✅ Token refreshed successfully for ${tenant.ghl_location_id}`);
+        // ── This request owns the refresh — lock and execute ──
+        console.log(`[OAuth] Token expired/expiring for ${locationId}. Refreshing...`);
+
+        const refreshPromise = (async () => {
+            const formData = new URLSearchParams({
+                client_id: config.GHL_CLIENT_ID,
+                client_secret: config.GHL_CLIENT_SECRET,
+                grant_type: 'refresh_token',
+                refresh_token: tenant.ghl_refresh_token
+            }).toString();
+
+            const res = await axios.post('https://services.leadconnectorhq.com/oauth/token', formData, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+
+            const newExpiresAt = new Date(Date.now() + res.data.expires_in * 1000);
+
+            // Save refreshed tokens back — only if we have a valid row id
+            if (tenant.id) {
+                await supabase.from(tableName).update({
+                    ghl_access_token: res.data.access_token,
+                    ghl_refresh_token: res.data.refresh_token,
+                    ghl_token_expires_at: newExpiresAt
+                }).eq('id', tenant.id);
+            }
+
+            console.log(`[OAuth] ✅ Token refreshed successfully for ${locationId}`);
+            return { access_token: res.data.access_token, refresh_token: res.data.refresh_token };
+        })();
+
+        refreshLocks.set(locationId, refreshPromise);
+
+        try {
+            const result = await refreshPromise;
+            tenant.ghl_access_token = result.access_token;
+            tenant.ghl_refresh_token = result.refresh_token;
+            return result.access_token;
+        } finally {
+            refreshLocks.delete(locationId);
+        }
     }
 
     return tenant.ghl_access_token;

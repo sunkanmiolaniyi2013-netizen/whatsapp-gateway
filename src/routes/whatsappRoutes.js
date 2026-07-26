@@ -83,10 +83,11 @@ router.post('/provider/send-message', async (req, res) => {
         const instanceId = tenant.whatsapp_instance_id;
         const attachments = payload.attachments || [];
 
-        // ── Bounded Retry Loop: Up to 3 attempts (spaced 1.5s apart, max 3 attempts total) ──
-        // Guarantees zero infinite loops. If session is reconnecting, gives socket time to open & deliver.
-        const MAX_SEND_ATTEMPTS = 3;
-        const RETRY_DELAY_MS = 1500; // 1.5 seconds between attempts
+        // ── Bounded Retry Loop: Up to 5 attempts with exponential backoff ──
+        // Total window ≈ 30s (1s + 2s + 4s + 8s delays + 5s polling each).
+        // Covers Baileys reconnection time which typically takes 10-30s.
+        const MAX_SEND_ATTEMPTS = 5;
+        const BASE_RETRY_DELAY_MS = 1000; // Exponential: 1s, 2s, 4s, 8s
         let lastError = null;
 
         for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
@@ -96,8 +97,8 @@ router.post('/provider/send-message', async (req, res) => {
                 console.log(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Instance ${instanceId} status is '${currentStatus}'. Triggering session restore...`);
                 wa.startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(() => {});
 
-                // Poll for connection to open (up to 3 seconds per attempt)
-                for (let poll = 0; poll < 6; poll++) {
+                // Poll for connection to open (up to 5 seconds per attempt)
+                for (let poll = 0; poll < 10; poll++) {
                     await new Promise(r => setTimeout(r, 500));
                     currentStatus = wa.getStatus(instanceId);
                     if (currentStatus === 'open') break;
@@ -141,8 +142,9 @@ router.post('/provider/send-message', async (req, res) => {
 
             // If not the final attempt, wait RETRY_DELAY_MS before retrying
             if (attempt < MAX_SEND_ATTEMPTS) {
-                console.log(`[WhatsApp Route] Waiting ${RETRY_DELAY_MS}ms before attempt ${attempt + 1}...`);
-                await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+                const delay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+                console.log(`[WhatsApp Route] Waiting ${delay}ms before attempt ${attempt + 1}...`);
+                await new Promise(r => setTimeout(r, delay));
             }
         }
 
@@ -153,9 +155,6 @@ router.post('/provider/send-message', async (req, res) => {
             isWhatsappError: true,
             message: lastError ? lastError.message : 'WhatsApp session is re-connecting. Please retry in a few seconds.'
         });
-
-        console.log(`[WhatsApp] Sent to ${toNumber} for contact ${payload.contactId || 'unknown'}`);
-        return res.status(200).json({ success: true, messageId });
     } catch (error) {
         console.error('[WhatsApp Route] Send Error:', error);
         return res.status(500).json({ success: false, error: error.message });

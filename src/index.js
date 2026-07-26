@@ -52,6 +52,48 @@ app.listen(config.PORT, async () => {
     const { startTokenRefreshJob } = require('./services/tokenRefreshJob');
     startTokenRefreshJob();
 
+    // ── Log Rotation: Purge old messages & logs to keep Supabase lean ──────────
+    const supabase = require('./db/supabase');
+    const LOG_ROTATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const MESSAGES_RETENTION_DAYS = 30;
+    const LOGS_RETENTION_DAYS = 14;
+
+    async function runLogRotation() {
+        try {
+            const messagesCutoff = new Date(Date.now() - MESSAGES_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+            const logsCutoff = new Date(Date.now() - LOGS_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+            const { count: messagesDeleted, error: msgErr } = await supabase
+                .from('messages')
+                .delete({ count: 'exact' })
+                .lt('created_at', messagesCutoff);
+
+            if (msgErr) {
+                console.error('[LogRotation] Error purging messages:', msgErr.message);
+            } else {
+                console.log(`[LogRotation] 🗑️ Purged ${messagesDeleted || 0} messages older than ${MESSAGES_RETENTION_DAYS} days`);
+            }
+
+            const { count: logsDeleted, error: logErr } = await supabase
+                .from('logs')
+                .delete({ count: 'exact' })
+                .lt('created_at', logsCutoff);
+
+            if (logErr) {
+                console.error('[LogRotation] Error purging logs:', logErr.message);
+            } else {
+                console.log(`[LogRotation] 🗑️ Purged ${logsDeleted || 0} log entries older than ${LOGS_RETENTION_DAYS} days`);
+            }
+        } catch (e) {
+            console.error('[LogRotation] Unexpected error:', e.message);
+        }
+    }
+
+    // Run on startup, then every 24 hours
+    runLogRotation();
+    setInterval(runLogRotation, LOG_ROTATION_INTERVAL_MS);
+    console.log('[LogRotation] 🚀 Log rotation job started. Runs every 24 hours.');
+
     // ── WhatsApp Baileys: Register Global Inbound Message Handler ──────────────
     // When a WhatsApp message is received, push it into GHL as an inbound message.
     const wa = require('./services/whatsappBailey');
