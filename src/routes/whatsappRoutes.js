@@ -81,57 +81,77 @@ router.post('/provider/send-message', async (req, res) => {
         }
 
         const instanceId = tenant.whatsapp_instance_id;
+        const attachments = payload.attachments || [];
 
-        // Ensure the Baileys session is running for this instance
-        let currentStatus = wa.getStatus(instanceId);
-        if (currentStatus !== 'open') {
-            console.log(`[WhatsApp Route] Instance ${instanceId} status is '${currentStatus}'. Attempting reconnection/restore...`);
-            // Trigger session restore
-            wa.startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(() => {});
-            
-            // Poll for up to 12 seconds (24 intervals of 500ms) for connection to open
-            const maxAttempts = 24;
-            for (let i = 0; i < maxAttempts; i++) {
-                await new Promise(r => setTimeout(r, 500));
-                currentStatus = wa.getStatus(instanceId);
-                if (currentStatus === 'open') {
-                    console.log(`[WhatsApp Route] Session ${instanceId} re-connected successfully after ${(i + 1) * 500}ms`);
-                    break;
+        // ── Bounded Retry Loop: Up to 3 attempts (spaced 1.5s apart, max 3 attempts total) ──
+        // Guarantees zero infinite loops. If session is reconnecting, gives socket time to open & deliver.
+        const MAX_SEND_ATTEMPTS = 3;
+        const RETRY_DELAY_MS = 1500; // 1.5 seconds between attempts
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
+            let currentStatus = wa.getStatus(instanceId);
+
+            if (currentStatus !== 'open') {
+                console.log(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Instance ${instanceId} status is '${currentStatus}'. Triggering session restore...`);
+                wa.startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(() => {});
+
+                // Poll for connection to open (up to 3 seconds per attempt)
+                for (let poll = 0; poll < 6; poll++) {
+                    await new Promise(r => setTimeout(r, 500));
+                    currentStatus = wa.getStatus(instanceId);
+                    if (currentStatus === 'open') break;
                 }
             }
 
-            if (wa.getStatus(instanceId) !== 'open') {
-                console.warn(`[WhatsApp Route] Session ${instanceId} failed to open within 12s (status: ${wa.getStatus(instanceId)})`);
-                return res.status(503).json({
-                    success: false,
-                    isWhatsappError: true,
-                    message: 'WhatsApp session is re-connecting. Please retry sending in a few seconds.'
-                });
+            if (currentStatus === 'open') {
+                try {
+                    // Send via built-in Baileys bridge (supports text + media attachments)
+                    await wa.sendMessage(instanceId, toNumber, body, attachments);
+
+                    // Track conversation & log message
+                    convoTracker.trackOutbound({
+                        toNumber,
+                        contactId: payload.contactId || null,
+                        conversationId: payload.conversationId || null,
+                        locationId,
+                        instanceId
+                    });
+
+                    await db.logMessage({
+                        tenant_id: tenant.id,
+                        direction: 'outbound',
+                        from_number: tenant.whatsapp_phone_number,
+                        to_number: toNumber,
+                        body,
+                        ghl_conversation_id: payload.conversationId || null,
+                        status: 'sent'
+                    });
+
+                    console.log(`[WhatsApp] Sent successfully to ${toNumber} (attempt ${attempt})`);
+                    return res.status(200).json({ success: true, messageId });
+                } catch (sendErr) {
+                    console.warn(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS} send error: ${sendErr.message}`);
+                    lastError = sendErr;
+                }
+            } else {
+                console.warn(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Session not open (status: ${currentStatus})`);
+                lastError = new Error(`WhatsApp instance status: ${currentStatus}`);
+            }
+
+            // If not the final attempt, wait RETRY_DELAY_MS before retrying
+            if (attempt < MAX_SEND_ATTEMPTS) {
+                console.log(`[WhatsApp Route] Waiting ${RETRY_DELAY_MS}ms before attempt ${attempt + 1}...`);
+                await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
             }
         }
 
-        // Send via built-in Baileys bridge (supports text + media attachments)
-        const attachments = payload.attachments || [];
-        await wa.sendMessage(instanceId, toNumber, body, attachments);
-
-        // ── Track this conversation for inbound reply matching ────────────
-        convoTracker.trackOutbound({
-            toNumber,
-            contactId: payload.contactId || null,
-            conversationId: payload.conversationId || null,
-            locationId,
-            instanceId
-        });
-
-        // Log the outbound message
-        await db.logMessage({
-            tenant_id: tenant.id,
-            direction: 'outbound',
-            from_number: tenant.whatsapp_phone_number,
-            to_number: toNumber,
-            body,
-            ghl_conversation_id: payload.conversationId || null,
-            status: 'sent'
+        // If all bounded attempts failed, return failure (503)
+        console.error(`[WhatsApp Route] All ${MAX_SEND_ATTEMPTS} send attempts failed for instance ${instanceId}. Returning 503.`);
+        return res.status(503).json({
+            success: false,
+            isWhatsappError: true,
+            message: lastError ? lastError.message : 'WhatsApp session is re-connecting. Please retry in a few seconds.'
         });
 
         console.log(`[WhatsApp] Sent to ${toNumber} for contact ${payload.contactId || 'unknown'}`);
