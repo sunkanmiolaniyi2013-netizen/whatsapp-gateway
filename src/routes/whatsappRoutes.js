@@ -18,87 +18,133 @@ router.get('/debug-db', async (req, res) => {
 });
 
 // ─── 1. Provider Send Route (For GHL Custom Provider) ───────────────────────
+// Returns 200 IMMEDIATELY so GHL never times out.
+// Actual routing + sending happens asynchronously in the background.
 router.post('/provider/send-message', async (req, res) => {
+    const payload = req.body;
+    const locationId = payload.locationId;
+    const toNumber = payload.phone;
+    const messageId = payload.messageId;
+
+    console.log('[WhatsApp Route] Outbound Payload received:', JSON.stringify(payload, null, 2));
+
+    if (!locationId || !toNumber) {
+        return res.status(400).json({ success: false, message: 'Missing locationId or phone' });
+    }
+
+    // ── Return 200 immediately — GHL will NEVER timeout ──
+    res.status(200).json({ success: true, messageId, status: 'queued' });
+
+    // ── Process asynchronously in the background ──
+    processWhatsappSend(payload).catch(err => {
+        console.error('[WhatsApp Async] Unhandled background error:', err.message);
+    });
+});
+
+/**
+ * Updates a GHL message's delivery status.
+ * Called after async processing completes (success or failure).
+ */
+async function updateGhlMessageStatus(locationId, messageId, status) {
+    if (!messageId) return;
     try {
-        const payload = req.body;
-        const locationId = payload.locationId;
-        const toNumber = payload.phone;
-        const body = payload.message;
-        const messageId = payload.messageId;
-        console.log('[WhatsApp Route] Outbound Payload received:', JSON.stringify(payload, null, 2));
+        const token = await ghlService.getValidAccessToken({ ghl_location_id: locationId });
+        await axios.put(
+            `https://services.leadconnectorhq.com/conversations/messages/${messageId}/status`,
+            { status },
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Version': '2021-04-15',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            }
+        );
+        console.log(`[WhatsApp Async] ✅ GHL status updated: ${messageId} → ${status}`);
+    } catch (e) {
+        console.error(`[WhatsApp Async] Failed to update GHL status for ${messageId}:`, e.response?.data || e.message);
+    }
+}
 
-        if (!locationId || !toNumber) {
-            return res.status(400).json({ success: false, message: 'Missing locationId or phone' });
-        }
+/**
+ * Background async processor for WhatsApp outbound messages.
+ * Takes as long as needed — no timeout pressure from GHL.
+ * Handles: tenant routing → socket reconnection → retries → GHL status update.
+ */
+async function processWhatsappSend(payload) {
+    const locationId = payload.locationId;
+    const toNumber = payload.phone;
+    const body = payload.message;
+    const messageId = payload.messageId;
+    const attachments = payload.attachments || [];
 
-        // Find active WhatsApp tenant for this GHL location
+    try {
+        // ── Step 1: Find active WhatsApp tenants ──
         const tenants = await whatsappDB.getWhatsappTenantsByLocationId(locationId);
         if (!tenants || tenants.length === 0) {
-            return res.status(404).json({ success: false, message: 'No active WhatsApp tenant found for this location' });
+            console.error(`[WhatsApp Async] No active tenant for location ${locationId}`);
+            await updateGhlMessageStatus(locationId, messageId, 'failed');
+            return;
         }
-        // ── ASSIGNED USER ROUTING ──
+
+        // ── Step 2: Route to the correct tenant (assigned user → sticky → round robin) ──
         let tenant = null;
 
         try {
             // Check if contact has an assigned user
             const token = await ghlService.getValidAccessToken({ ghl_location_id: locationId });
             const contact = await ghlService.findContactByPhone(token, locationId, toNumber);
-            
+
             if (contact && contact.assignedTo) {
-                // Find a WhatsApp tenant assigned to this specific GHL user
                 const assignedTenant = tenants.find(t => t.ghl_assigned_user_id === contact.assignedTo);
                 if (assignedTenant) {
                     tenant = assignedTenant;
-                    console.log(`[Assigned Routing] Prospect ${toNumber} is assigned to user ${contact.assignedTo}. Selected instance ${tenant.whatsapp_instance_id}`);
+                    console.log(`[WhatsApp Async] Assigned Routing: ${toNumber} → user ${contact.assignedTo} → instance ${tenant.whatsapp_instance_id}`);
                 }
             }
         } catch (e) {
-            console.error(`[Assigned Routing Error] Failed to fetch contact assignment: ${e.message}`);
+            console.error(`[WhatsApp Async] Assigned routing lookup failed (non-fatal): ${e.message}`);
         }
 
-        // ── STICKY ROUTING & LOAD BALANCING (Fallback) ──
+        // Sticky routing fallback
         if (!tenant) {
-            // 1. Check if this prospect has a sticky connection to a specific instance
             const tracked = convoTracker.lookupInbound(toNumber, null);
             if (tracked && tracked.instanceId) {
                 const stickyTenant = tenants.find(t => t.whatsapp_instance_id === tracked.instanceId);
                 if (stickyTenant) {
                     tenant = stickyTenant;
-                    console.log(`[Sticky Routing] Prospect ${toNumber} stuck to instance ${tenant.whatsapp_instance_id}`);
+                    console.log(`[WhatsApp Async] Sticky Routing: ${toNumber} → instance ${tenant.whatsapp_instance_id}`);
                 }
-            }
-
-            // 2. If no sticky connection, pick a generic/unassigned tenant if possible, else random
-            if (!tenant) {
-                // Prefer tenants that are NOT assigned to specific users for generic load balancing
-                const genericTenants = tenants.filter(t => !t.ghl_assigned_user_id);
-                const pool = genericTenants.length > 0 ? genericTenants : tenants;
-                
-                const randomIndex = Math.floor(Math.random() * pool.length);
-                tenant = pool[randomIndex];
-                console.log(`[Round Robin] New prospect ${toNumber}, selected instance ${tenant.whatsapp_instance_id}`);
             }
         }
 
-        const instanceId = tenant.whatsapp_instance_id;
-        const attachments = payload.attachments || [];
+        // Round robin fallback
+        if (!tenant) {
+            const genericTenants = tenants.filter(t => !t.ghl_assigned_user_id);
+            const pool = genericTenants.length > 0 ? genericTenants : tenants;
+            const randomIndex = Math.floor(Math.random() * pool.length);
+            tenant = pool[randomIndex];
+            console.log(`[WhatsApp Async] Round Robin: ${toNumber} → instance ${tenant.whatsapp_instance_id}`);
+        }
 
-        // ── Bounded Retry Loop: Up to 5 attempts with exponential backoff ──
-        // Total window ≈ 30s (1s + 2s + 4s + 8s delays + 5s polling each).
-        // Covers Baileys reconnection time which typically takes 10-30s.
+        const instanceId = tenant.whatsapp_instance_id;
+
+        // ── Step 3: Send with retries (no time pressure — we have unlimited time) ──
         const MAX_SEND_ATTEMPTS = 5;
-        const BASE_RETRY_DELAY_MS = 1000; // Exponential: 1s, 2s, 4s, 8s
+        const BASE_RETRY_DELAY_MS = 2000; // Exponential: 2s, 4s, 8s, 16s, 32s (~62s total)
         let lastError = null;
 
         for (let attempt = 1; attempt <= MAX_SEND_ATTEMPTS; attempt++) {
             let currentStatus = wa.getStatus(instanceId);
 
+            // If socket is not open, trigger reconnection and wait
             if (currentStatus !== 'open') {
-                console.log(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Instance ${instanceId} status is '${currentStatus}'. Triggering session restore...`);
+                console.log(`[WhatsApp Async] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Instance ${instanceId} status='${currentStatus}'. Restoring session...`);
                 wa.startSession(instanceId, { onConnected: () => {}, onDisconnected: () => {} }).catch(() => {});
 
-                // Poll for connection to open (up to 5 seconds per attempt)
-                for (let poll = 0; poll < 10; poll++) {
+                // Poll for connection to open (up to 10 seconds per attempt)
+                for (let poll = 0; poll < 20; poll++) {
                     await new Promise(r => setTimeout(r, 500));
                     currentStatus = wa.getStatus(instanceId);
                     if (currentStatus === 'open') break;
@@ -107,10 +153,9 @@ router.post('/provider/send-message', async (req, res) => {
 
             if (currentStatus === 'open') {
                 try {
-                    // Send via built-in Baileys bridge (supports text + media attachments)
                     await wa.sendMessage(instanceId, toNumber, body, attachments);
 
-                    // Track conversation & log message
+                    // ── Success! Track conversation + log + update GHL status ──
                     convoTracker.trackOutbound({
                         toNumber,
                         contactId: payload.contactId || null,
@@ -129,37 +174,45 @@ router.post('/provider/send-message', async (req, res) => {
                         status: 'sent'
                     });
 
-                    console.log(`[WhatsApp] Sent successfully to ${toNumber} (attempt ${attempt})`);
-                    return res.status(200).json({ success: true, messageId });
+                    console.log(`[WhatsApp Async] ✅ Sent to ${toNumber} (attempt ${attempt})`);
+                    await updateGhlMessageStatus(locationId, messageId, 'delivered');
+                    return; // Done!
                 } catch (sendErr) {
-                    console.warn(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS} send error: ${sendErr.message}`);
+                    console.warn(`[WhatsApp Async] Attempt ${attempt}/${MAX_SEND_ATTEMPTS} send error: ${sendErr.message}`);
                     lastError = sendErr;
                 }
             } else {
-                console.warn(`[WhatsApp Route] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Session not open (status: ${currentStatus})`);
+                console.warn(`[WhatsApp Async] Attempt ${attempt}/${MAX_SEND_ATTEMPTS}: Session not open (status: ${currentStatus})`);
                 lastError = new Error(`WhatsApp instance status: ${currentStatus}`);
             }
 
-            // If not the final attempt, wait RETRY_DELAY_MS before retrying
+            // Wait before next attempt (exponential backoff)
             if (attempt < MAX_SEND_ATTEMPTS) {
                 const delay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
-                console.log(`[WhatsApp Route] Waiting ${delay}ms before attempt ${attempt + 1}...`);
+                console.log(`[WhatsApp Async] Waiting ${delay}ms before attempt ${attempt + 1}...`);
                 await new Promise(r => setTimeout(r, delay));
             }
         }
 
-        // If all bounded attempts failed, return failure (503)
-        console.error(`[WhatsApp Route] All ${MAX_SEND_ATTEMPTS} send attempts failed for instance ${instanceId}. Returning 503.`);
-        return res.status(503).json({
-            success: false,
-            isWhatsappError: true,
-            message: lastError ? lastError.message : 'WhatsApp session is re-connecting. Please retry in a few seconds.'
+        // ── All attempts exhausted ──
+        console.error(`[WhatsApp Async] ❌ All ${MAX_SEND_ATTEMPTS} attempts failed for ${toNumber} on instance ${instanceId}`);
+        await updateGhlMessageStatus(locationId, messageId, 'failed');
+
+        await db.logMessage({
+            tenant_id: tenant.id,
+            direction: 'outbound',
+            from_number: tenant.whatsapp_phone_number,
+            to_number: toNumber,
+            body,
+            ghl_conversation_id: payload.conversationId || null,
+            status: 'failed'
         });
+
     } catch (error) {
-        console.error('[WhatsApp Route] Send Error:', error);
-        return res.status(500).json({ success: false, error: error.message });
+        console.error('[WhatsApp Async] Background processing error:', error.message);
+        await updateGhlMessageStatus(locationId, messageId, 'failed');
     }
-});
+}
 
 // ─── 2. Inbound Messages from Baileys (called internally by the session manager) ─
 // This endpoint receives inbound WhatsApp messages and pushes them to GHL.
