@@ -4,7 +4,7 @@
  * No external Evolution API server needed.
  */
 
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCode = require('qrcode');
 const path = require('path');
@@ -470,8 +470,8 @@ async function sendMessage(instanceId, to, text, attachments = [], retryCount = 
 }
 
 /**
- * Keep-Alive Interval: Pings active WhatsApp WebSockets every 3 minutes
- * to keep connections warm and prevent server-side idle disconnects.
+ * Keep-Alive Interval: Pings active WhatsApp WebSockets every 2 minutes
+ * to keep connections warm, ready, and prevent server-side idle disconnects.
  */
 function startKeepAliveLoop() {
     setInterval(async () => {
@@ -492,7 +492,7 @@ function startKeepAliveLoop() {
                 });
             }
         }
-    }, 3 * 60 * 1000); // 3 minutes
+    }, 2 * 60 * 1000); // 2 minutes
 }
 
 // Start keep-alive loop automatically
