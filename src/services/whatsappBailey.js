@@ -23,6 +23,10 @@ const qrWaiters = {};
 const processedMessages = new Map(); // msgId -> timestamp
 const DEDUP_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
+// Disconnect Retry Tracker: Prevents premature folder deletion on transient 401 disconnects
+const disconnectRetryCounts = new Map(); // instanceId -> retryAttempt
+const MAX_DISCONNECT_RETRIES = 3;
+
 // Global LID→Phone cache: WhatsApp now sends anonymous LIDs instead of phone JIDs.
 // We cache resolved mappings from contacts events and remoteJidAlt so that even
 // when a message arrives without remoteJidAlt, we can still resolve the real number.
@@ -96,23 +100,34 @@ async function startSession(instanceId, { onQR, onConnected, onDisconnected, onM
             sessions[instanceId].status = 'open';
             sessions[instanceId].phone = phone;
             sessions[instanceId].qrBase64 = null;
+            disconnectRetryCounts.set(instanceId, 0); // Reset retry counter on successful connection
             console.log(`[Baileys] ✅ Connected: ${instanceId} (${phone})`);
             if (onConnected) onConnected(phone);
         }
 
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            const shouldReconnect = reason !== DisconnectReason.loggedOut;
-            console.log(`[Baileys] ❌ Disconnected: ${instanceId}, reason=${reason}, reconnect=${shouldReconnect}`);
+            const attempts = (disconnectRetryCounts.get(instanceId) || 0) + 1;
+            disconnectRetryCounts.set(instanceId, attempts);
+
+            // Reconnect if standard reconnect reason OR if retry attempts have not exceeded limit
+            const isLoggedOut = reason === DisconnectReason.loggedOut;
+            const shouldReconnect = !isLoggedOut || attempts <= MAX_DISCONNECT_RETRIES;
+
+            console.log(`[Baileys] ❌ Disconnected: ${instanceId}, reason=${reason}, attempt=${attempts}/${MAX_DISCONNECT_RETRIES}, reconnect=${shouldReconnect}`);
             sessions[instanceId].status = 'disconnected';
 
             if (shouldReconnect) {
-                // Wait 3s then reconnect
-                setTimeout(() => startSession(instanceId, { onQR, onConnected, onDisconnected, onMessage }), 3000);
+                // Exponential backoff: 3s, 6s, 12s
+                const delay = Math.min(3000 * Math.pow(2, attempts - 1), 12000);
+                console.log(`[Baileys] 🔄 Scheduling reconnect attempt ${attempts} for ${instanceId} in ${delay}ms...`);
+                setTimeout(() => startSession(instanceId, { onQR, onConnected, onDisconnected, onMessage }), delay);
             } else {
-                // Logged out - delete auth files
+                // All retry attempts exhausted on confirmed logout - delete auth files
+                console.warn(`[Baileys] ⚠️ Session ${instanceId} permanently logged out after ${attempts} attempts. Cleaning up auth files.`);
                 fs.rmSync(path.join(AUTH_DIR, instanceId), { recursive: true, force: true });
                 delete sessions[instanceId];
+                disconnectRetryCounts.delete(instanceId);
                 if (onDisconnected) onDisconnected();
             }
         }
@@ -508,6 +523,7 @@ async function deleteSession(instanceId) {
     }
     fs.rmSync(path.join(AUTH_DIR, instanceId), { recursive: true, force: true });
     delete sessions[instanceId];
+    disconnectRetryCounts.delete(instanceId);
 }
 
 /**
