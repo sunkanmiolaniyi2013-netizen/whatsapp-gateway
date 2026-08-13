@@ -274,16 +274,32 @@ router.get('/setup', (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/whatsapp-user.html'));
 });
 
-// Check status using location_id
+// Check status using location_id (with optional user_id for staff isolation)
 router.get('/setup/status', async (req, res) => {
     try {
-        const { location_id } = req.query;
+        const { location_id, user_id } = req.query;
         if (!location_id) return res.status(400).json({ error: 'Missing location_id' });
 
         // Verify if tenant exists
-        const tenants = await whatsappDB.getWhatsappTenantsByLocationId(location_id);
+        let tenants = await whatsappDB.getWhatsappTenantsByLocationId(location_id);
         if (!tenants || tenants.length === 0) {
             return res.json({ devices: [] });
+        }
+
+        // Staff Isolation: If user_id is provided, filter to show only this user's assigned device(s)
+        if (user_id) {
+            const userTenants = tenants.filter(t => t.ghl_assigned_user_id === user_id);
+            if (userTenants.length > 0) {
+                tenants = userTenants;
+            } else {
+                // If user has no device assigned yet, check for an unassigned tenant or show empty
+                const unassignedTenants = tenants.filter(t => !t.ghl_assigned_user_id);
+                if (unassignedTenants.length > 0) {
+                    tenants = [unassignedTenants[0]];
+                } else {
+                    tenants = [];
+                }
+            }
         }
 
         const devices = [];
@@ -314,7 +330,7 @@ router.get('/setup/status', async (req, res) => {
 // Start session / Generate QR
 router.post('/setup/start', async (req, res) => {
     try {
-        const { location_id, forceNew, instance_id } = req.body;
+        const { location_id, user_id, forceNew, instance_id } = req.body;
         if (!location_id) return res.status(400).json({ error: 'Missing location_id' });
 
         // We check if OAuth tokens exist for this location to verify they are a valid user
@@ -353,6 +369,7 @@ router.post('/setup/start', async (req, res) => {
             tenant = await whatsappDB.addWhatsappTenant({
                 business_name: `Location ${location_id} (Num ${tenants ? tenants.length + 1 : 1})`,
                 ghl_location_id: location_id,
+                ghl_assigned_user_id: user_id || null,
                 whatsapp_phone_number: `pending_${Date.now()}`, // Unique to avoid UNIQUE constraint collisions
                 whatsapp_instance_id: instance_name,
                 whatsapp_api_key: 'built-in',
@@ -364,12 +381,21 @@ router.post('/setup/start', async (req, res) => {
                 } : {})
             });
         } else {
-            // Default to first tenant if nothing specified (for backwards compatibility)
-            tenant = tenants[0];
+            // Pick tenant assigned to user_id, or unassigned, or default to first tenant
+            if (user_id) {
+                tenant = tenants.find(t => t.ghl_assigned_user_id === user_id) || tenants.find(t => !t.ghl_assigned_user_id) || tenants[0];
+            } else {
+                tenant = tenants[0];
+            }
         }
 
         const instanceToStart = tenant.whatsapp_instance_id;
         
+        // Auto-assign to user_id if provided and not yet assigned
+        if (user_id && !tenant.ghl_assigned_user_id) {
+            await whatsappDB.assignWhatsappTenantUser(instanceToStart, user_id);
+        }
+
         const current = wa.getStatus(instanceToStart);
         if (current === 'open') {
             return res.json({ status: 'open', phone: wa.getPhone(instanceToStart) });
